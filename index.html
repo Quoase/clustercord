@@ -1,0 +1,3063 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clustercord!</title>
+  <link rel="icon" type="image/png" href="image.png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #0a0a0c;
+      --bg-panel: #121318;
+      --bg-chat: #181920;
+      --bg-input: #20222c;
+      --accent-blue: #0088ff;
+      --accent-danger: #ff4d4d;
+      --text-main: #f0f2f5;
+      --text-muted: #8e9297;
+      --border-color: #272934;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+    }
+
+    .screen {
+      width: 100%;
+      height: 100%;
+      display: flex;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    /* --- TELA DE LOGIN --- */
+    #login-screen {
+      justify-content: center;
+      align-items: center;
+      background: radial-gradient(circle at center, #003865 0%, var(--bg-dark) 70%);
+    }
+
+    .login-card {
+      background: var(--bg-panel);
+      padding: 2.5rem;
+      border-radius: 16px;
+      border: 1px solid var(--border-color);
+      width: 100%;
+      max-width: 420px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+    }
+
+    .logo-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: 2.5rem;
+      font-weight: 800;
+      color: var(--accent-blue);
+      text-shadow: 0 0 20px rgba(0, 136, 255, 0.5);
+      text-align: center;
+      margin-bottom: 0.5rem;
+      letter-spacing: -1px;
+    }
+
+    .login-subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .input-group {
+      margin-bottom: 1.2rem;
+      text-align: left;
+    }
+
+    .input-group label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .input-group input {
+      width: 100%;
+      padding: 0.8rem 1rem;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.95rem;
+      outline: none;
+      transition: 0.2s;
+    }
+
+    .input-group input:focus {
+      border-color: var(--accent-blue);
+    }
+
+    .btn-main {
+      width: 100%;
+      padding: 0.88rem;
+      background: var(--accent-blue);
+      color: #000;
+      border: none;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .btn-main:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+    }
+
+    #auth-mode-toggle {
+      display: flex;
+      gap: 0.45rem;
+      margin: 0.2rem 0 1rem;
+    }
+    #auth-mode-toggle button {
+      flex: 1;
+      padding: 0.65rem 0.8rem;
+      background: var(--bg-input);
+      color: var(--text-muted);
+      border: 1px solid var(--border-color);
+      border-radius: 7px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #auth-mode-toggle button.active {
+      background: rgba(0,136,255,0.18);
+      color: var(--text-main);
+      border-color: var(--accent-blue);
+    }
+
+    .error-msg {
+      color: var(--accent-danger);
+      font-size: 0.85rem;
+      margin-top: 1rem;
+      text-align: center;
+      display: none;
+      background: rgba(255, 77, 77, 0.1);
+      padding: 0.6rem;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 77, 77, 0.3);
+    }
+
+    /* --- TELA PRINCIPAL --- */
+    #app-screen {
+      width: 100vw;
+      height: 100vh;
+    }
+
+    .sidebar {
+      width: 340px;
+      background: var(--bg-panel);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sidebar-header {
+      padding: 1rem 1.2rem;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .user-profile {
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    .avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: var(--accent-blue);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: #000;
+      background-size: cover;
+      background-position: center;
+      flex-shrink: 0;
+    }
+
+    .user-info {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .user-name {
+      font-weight: 600;
+      font-size: 0.95rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .user-bio {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .actions-bar {
+      padding: 0.8rem 1rem;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      gap: 0.5rem;
+      flex-direction: column;
+    }
+
+    .search-box {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .search-box input {
+      flex: 1;
+      padding: 0.6rem 0.8rem;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: #fff;
+      font-size: 0.85rem;
+      outline: none;
+    }
+
+    .btn-small {
+      padding: 0.6rem 0.9rem;
+      background: var(--accent-blue);
+      border: none;
+      border-radius: 6px;
+      color: #000;
+      font-weight: 600;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .btn-small:hover {
+      opacity: 0.9;
+    }
+
+    .btn-secondary {
+      background: var(--bg-input);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+    }
+
+    .btn-secondary:hover {
+      background: #2a2c38;
+    }
+
+    .contact-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.5rem;
+    }
+
+    .section-title {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      font-weight: 700;
+      padding: 0.8rem 0.5rem 0.4rem;
+    }
+
+    .contact-item {
+      padding: 0.7rem 0.8rem;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      cursor: pointer;
+      transition: 0.2s;
+      margin-bottom: 0.2rem;
+    }
+
+    .contact-item:hover, .contact-item.active {
+      background: var(--bg-input);
+    }
+
+    /* --- ÁREA DE CHAT --- */
+    .chat-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-chat);
+    }
+
+    .chat-header {
+      padding: 0.9rem 1.5rem;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .chat-header-info {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .channels-bar {
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border-color);
+      padding: 0.5rem 1.5rem;
+      display: flex;
+      gap: 0.5rem;
+      overflow-x: auto;
+    }
+
+    .channel-tab {
+      padding: 0.4rem 0.8rem;
+      background: var(--bg-input);
+      border-radius: 6px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .channel-tab.active {
+      background: var(--accent-blue);
+      color: #000;
+      font-weight: 600;
+    }
+
+    .channel-tab.voice-channel {
+      border: 1px solid rgba(0, 136, 255, 0.25);
+    }
+
+    .voice-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      padding: 2rem;
+      overflow-y: auto;
+    }
+
+    .voice-panel-card {
+      width: min(560px, 100%);
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      padding: 1.5rem;
+    }
+
+    .voice-users {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      margin: 1rem 0;
+    }
+
+    .voice-user {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      padding: 0.65rem 0.8rem;
+      background: var(--bg-input);
+      border-radius: 8px;
+    }
+
+    .voice-status {
+      margin-left: auto;
+      color: #57d38c;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .voice-empty {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      text-align: center;
+      padding: 0.8rem;
+    }
+
+    .voice-audios {
+      display: none;
+    }
+
+
+    .unread-badge {
+      min-width: 20px;
+      height: 20px;
+      padding: 0 6px;
+      border-radius: 10px;
+      background: var(--accent-danger);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      font-weight: 700;
+      line-height: 1;
+      flex-shrink: 0;
+      margin-left: auto;
+    }
+
+    .chat-messages {
+      flex: 1;
+      padding: 1.5rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .message-wrapper {
+      display: flex;
+      gap: 0.8rem;
+      max-width: 75%;
+    }
+
+    .message-wrapper.sent {
+      align-self: flex-end;
+      flex-direction: row-reverse;
+    }
+
+    .message-wrapper.received {
+      align-self: flex-start;
+    }
+
+    .msg-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--accent-blue);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: #000;
+      background-size: cover;
+      background-position: center;
+      flex-shrink: 0;
+    }
+
+    .message-content {
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .msg-author {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-bottom: 0.2rem;
+      font-weight: 600;
+    }
+
+    .message-wrapper.sent .msg-author {
+      text-align: right;
+    }
+
+    .message-bubble {
+      padding: 0.8rem 1rem;
+      border-radius: 12px;
+      font-size: 0.95rem;
+      line-height: 1.4;
+      word-break: break-word;
+      position: relative;
+    }
+
+    .message-wrapper.sent .message-bubble {
+      background: var(--accent-blue);
+      color: #000;
+      font-weight: 500;
+      border-bottom-right-radius: 2px;
+    }
+
+    .message-wrapper.received .message-bubble {
+      background: var(--bg-input);
+      color: var(--text-main);
+      border-bottom-left-radius: 2px;
+    }
+
+    .btn-delete-msg {
+      display: none;
+      position: absolute;
+      right: 6px;
+      top: 6px;
+      background: rgba(0, 0, 0, 0.25);
+      border: none;
+      border-radius: 4px;
+      color: var(--accent-danger);
+      cursor: pointer;
+      font-size: 0.8rem;
+      line-height: 1;
+      padding: 3px 5px;
+      z-index: 2;
+    }
+
+    .message-bubble:hover .btn-delete-msg {
+      display: block;
+    }
+
+    .chat-input-area {
+      padding: 1rem 1.5rem;
+      background: var(--bg-panel);
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      gap: 0.8rem;
+    }
+
+    .chat-input-area input {
+      flex: 1;
+      padding: 0.8rem 1rem;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: #fff;
+      outline: none;
+    }
+
+    /* --- CONTROLES DE VOZ / TELA --- */
+    .voice-controls {
+      display: flex;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+      margin-top: 0.7rem;
+    }
+
+    .voice-control-btn {
+      padding: 0.55rem 0.75rem;
+      background: var(--bg-input);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+
+    .voice-control-btn:hover {
+      background: #2a2c38;
+    }
+
+    .voice-control-btn.active {
+      border-color: var(--accent-blue);
+      background: rgba(0, 136, 255, 0.15);
+    }
+
+    .voice-control-btn.danger {
+      color: #fff;
+      background: var(--accent-danger);
+      border-color: var(--accent-danger);
+    }
+
+    .voice-status {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.45rem;
+    }
+
+
+    /* --- MODAIS --- */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.75);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+    }
+
+    .modal {
+      background: var(--bg-panel);
+      padding: 2rem;
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+      width: 100%;
+      max-width: 450px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+    }
+
+    .modal-header {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 1.2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .close-modal {
+      cursor: pointer;
+      color: var(--text-muted);
+      font-size: 1.2rem;
+    }
+
+    .close-modal:hover {
+      color: #fff;
+    }
+  </style>
+
+  <style>
+    .reply-header {
+      font-size: 0.72rem;
+      font-weight: 700;
+      margin-bottom: 0.45rem;
+      opacity: 0.9;
+    }
+
+    .reply-quote {
+      margin: 0 0 0.7rem 0;
+      padding: 0.5rem 0.65rem;
+      border-left: 3px solid currentColor;
+      border-radius: 5px;
+      background: rgba(0, 0, 0, 0.12);
+      opacity: 0.9;
+    }
+
+    .reply-quote-label,
+    .reply-answer-label {
+      font-size: 0.65rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.2rem;
+      opacity: 0.75;
+    }
+
+    .reply-quote-text {
+      font-size: 0.82rem;
+      line-height: 1.3;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .reply-answer-label {
+      margin-top: 0.15rem;
+    }
+
+    .reply-answer-text {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .message-wrapper.sent .reply-quote {
+      background: rgba(255, 255, 255, 0.18);
+    }
+
+    .message-wrapper.received .reply-quote {
+      background: rgba(0, 0, 0, 0.18);
+    }
+  </style>
+
+  <style>
+    .message-time {
+      display: block;
+      margin-top: 0.35rem;
+      font-size: 0.68rem;
+      line-height: 1;
+      opacity: 0.68;
+      text-align: right;
+      user-select: none;
+    }
+
+    .message-wrapper.sent .message-time {
+      color: rgba(0, 0, 0, 0.62);
+    }
+
+    .message-wrapper.received .message-time {
+      color: var(--text-muted);
+    }
+
+    #message-context-menu button:hover {
+      background: var(--bg-input) !important;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- LOGIN SCREEN -->
+  <div id="login-screen" class="screen">
+    <div class="login-card">
+      <div class="logo-title">Clustercord!</div>
+      <p class="login-subtitle">Acesse ou crie sua conta na rede</p>
+      
+      <div class="input-group">
+        <label for="nickname">Nickname</label>
+        <input type="text" id="nickname" placeholder="Ex: Alex">
+      </div>
+      
+      <div class="input-group">
+        <label for="password">Sua Senha</label>
+        <input type="password" id="password" placeholder="Sua senha secreta">
+      </div>
+      
+      <div class="input-group">
+        <label for="userid">Código de acesso (opcional)</label>
+        <input type="password" id="userid" placeholder="Não é usado para autenticação">
+      </div>
+      
+      <div id="auth-mode-toggle" aria-label="Modo de autenticação">
+        <button type="button" id="btn-mode-login" class="active">Entrar</button>
+        <button type="button" id="btn-mode-register">Criar conta</button>
+      </div>
+      <button class="btn-main" id="btn-login">Entrar</button>
+      <div id="error-msg" class="error-msg"></div>
+    </div>
+  </div>
+
+  <!-- APP SCREEN -->
+  <div id="app-screen" class="screen hidden">
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <div class="user-profile" id="my-profile-btn">
+          <div class="avatar" id="my-avatar">U</div>
+          <div class="user-info">
+            <div id="my-name" class="user-name">Usuário</div>
+            <div id="my-bio" class="user-bio">Clique para editar perfil</div>
+          </div>
+        </div>
+        <button class="btn-small btn-secondary" id="btn-logout">Sair</button>
+      </div>
+
+      <div class="actions-bar">
+        <div class="search-box">
+          <input type="text" id="target-nickname" placeholder="Puxar usuário por Nick...">
+          <button class="btn-small" id="btn-puxar">Puxar</button>
+        </div>
+        <button class="btn-small btn-secondary" id="btn-create-group-modal">+ Criar Novo Grupo</button>
+      </div>
+
+      <div class="contact-list" id="contact-list"></div>
+    </div>
+
+    <div class="chat-area">
+      <div class="chat-header">
+        <div class="chat-header-info">
+          <div class="avatar" id="active-avatar">?</div>
+          <div>
+            <div id="active-chat-name" style="font-weight:600;">Selecione uma conversa</div>
+            <div id="active-chat-sub" style="font-size:0.75rem; color:var(--text-muted);"></div>
+          </div>
+        </div>
+        <div id="header-actions"></div>
+      </div>
+
+      <div id="channels-bar" class="channels-bar hidden"></div>
+      <div class="chat-messages" id="chat-messages"></div>
+
+      <div class="chat-input-area">
+        <input type="text" id="message-input" placeholder="Digite sua mensagem...">
+        <button class="btn-small" id="btn-send">Enviar</button>
+      </div>
+
+      <div id="voice-controls" class="voice-controls hidden">
+        <button class="voice-control-btn" id="btn-mute-mic" title="Bloquear/desbloquear microfone">🎙️ Microfone</button>
+        <button class="voice-control-btn" id="btn-share-screen" title="Transmitir sua tela">🖥️ Compartilhar tela</button>
+        <button class="voice-control-btn danger" id="btn-leave-voice" title="Sair da chamada de voz">📞 Sair da voz</button>
+        <div id="voice-status" class="voice-status">Desconectado</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: EDITAR PERFIL -->
+  <div id="profile-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <span>Personalizar Perfil</span>
+        <span class="close-modal" id="close-profile-modal">✕</span>
+      </div>
+      <div class="input-group">
+        <label>Sua Bio</label>
+        <input type="text" id="edit-bio" placeholder="Ex: Desenvolvedor Front-End">
+      </div>
+      <div class="input-group">
+        <label>URL da Foto de Perfil (Opcional)</label>
+        <input type="text" id="edit-photo-url" placeholder="https://link-da-imagem.png">
+      </div>
+      <div class="input-group">
+        <label>OU Carregar Imagem Local (Compressão local)</label>
+        <input type="file" id="edit-photo-file" accept="image/*">
+      </div>
+      <button class="btn-main" id="btn-save-profile">Salvar Alterações</button>
+    </div>
+  </div>
+
+  <!-- MODAL: CRIAR GRUPO -->
+  <div id="group-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <span>Criar Novo Grupo</span>
+        <span class="close-modal" id="close-group-modal">✕</span>
+      </div>
+      <div class="input-group">
+        <label>Nome do Grupo</label>
+        <input type="text" id="group-name-input" placeholder="Ex: Os Devs">
+      </div>
+      <div class="input-group">
+        <label>Membros Iniciais (separados por vírgula)</label>
+        <input type="text" id="group-members-input" placeholder="Ex: Nick1, Nick2">
+      </div>
+      <button class="btn-main" id="btn-save-group">Criar Grupo</button>
+    </div>
+  </div>
+
+  <!-- MODAL: GERENCIAR GRUPO -->
+  <div id="manage-group-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <span>Gerenciar Grupo</span>
+        <span class="close-modal" id="close-manage-modal">✕</span>
+      </div>
+      <div id="owner-controls" class="hidden">
+        <div class="input-group">
+          <label>Renomear Grupo</label>
+          <div style="display:flex; gap:0.5rem;">
+            <input type="text" id="new-group-name">
+            <button class="btn-small" id="btn-rename-group">Salvar</button>
+          </div>
+        </div>
+        <div class="input-group">
+          <label>Criar Novo Canal de Texto</label>
+          <div style="display:flex; gap:0.5rem;">
+            <input type="text" id="new-channel-name" placeholder="ex: avisos">
+            <button class="btn-small" id="btn-add-channel">Criar</button>
+          </div>
+        </div>
+        <div class="input-group">
+          <label>Criar Novo Canal de Voz</label>
+          <div style="display:flex; gap:0.5rem;">
+            <input type="text" id="new-voice-channel-name" placeholder="ex: Sala de Voz">
+            <button class="btn-small" id="btn-add-voice-channel">Criar</button>
+          </div>
+        </div>
+        <div class="input-group">
+          <label>Puxar Novo Membro</label>
+          <div style="display:flex; gap:0.5rem;">
+            <input type="text" id="new-member-nick" placeholder="Nickname">
+            <button class="btn-small" id="btn-add-member">Adicionar</button>
+          </div>
+        </div>
+      </div>
+      <div class="section-title">Lista de Membros</div>
+      <div id="group-members-list" style="max-height: 150px; overflow-y: auto; margin-bottom: 1rem;"></div>
+    </div>
+  </div>
+
+  <!-- FIREBASE SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { 
+      getFirestore, doc, setDoc, getDoc, updateDoc, collection, addDoc, 
+      query, where, onSnapshot, serverTimestamp, arrayUnion, arrayRemove, increment, 
+      getDocs, deleteDoc 
+    } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    // CREDENCIAIS REAIS DO FIREBASE
+    const firebaseConfig = {
+      apiKey: ["AIzaSyDynL0", "dfZuxvqBEUrdbsKXAYP-0zHQFQTY"].join(""),
+      authDomain: ["clustercord", "firebaseapp.com"].join("."),
+      projectId: ["cluster", "cord"].join(""),
+      storageBucket: ["clustercord", "firebasestorage.app"].join("."),
+      messagingSenderId: ["4756", "805305"].join(""),
+      appId: ["1:475680305018:web:a749446edc", "2342a11ab0c3"].join(""),
+      measurementId: ["G-FL93R", "52VRT"].join("")
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    // O UserID antigo não é mais usado como segredo. A autenticação real é feita pelo Firebase Authentication.
+    // O campo visual foi mantido para não alterar o layout; ele é opcional e não concede acesso por si só.
+    async function sha256Hex(value) {
+      const data = new TextEncoder().encode(String(value));
+      const digest = await crypto.subtle.digest("SHA-256", data);
+      return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
+    }
+    let currentUser = null;
+    let authenticatedUid = null;
+    let userProfile = {};
+    let activeChat = null;
+    let activeChannel = 'geral';
+    let usersCache = {};
+    let unsubscribeMessages = null;
+    let unsubscribeVoiceParticipants = null;
+    let voiceLocalStream = null;
+    let activeVoiceChannel = null;
+    const voicePeers = new Map();
+    const voiceCandidateQueues = new Map();
+
+    let unsubscribeGroups = null;
+
+    // Elementos DOM
+    const loginScreen = document.getElementById('login-screen');
+    const appScreen = document.getElementById('app-screen');
+    const inputNickname = document.getElementById('nickname');
+    const inputPassword = document.getElementById('password');
+    const inputUserId = document.getElementById('userid');
+    const btnLogin = document.getElementById('btn-login');
+    const errorMsg = document.getElementById('error-msg');
+
+    const myNameEl = document.getElementById('my-name');
+    const myBioEl = document.getElementById('my-bio');
+    const myAvatarEl = document.getElementById('my-avatar');
+    const contactListEl = document.getElementById('contact-list');
+    const chatMessagesEl = document.getElementById('chat-messages');
+    const messageInput = document.getElementById('message-input');
+    const btnSend = document.getElementById('btn-send');
+    const voiceControlsEl = document.getElementById('voice-controls');
+    const btnMuteMic = document.getElementById('btn-mute-mic');
+    const btnShareScreen = document.getElementById('btn-share-screen');
+    const btnLeaveVoice = document.getElementById('btn-leave-voice');
+    const voiceStatusEl = document.getElementById('voice-status');
+
+    let localVoiceStream = null;
+    let localScreenStream = null;
+    let isMicMuted = false;
+    let isScreenSharing = false;
+
+
+    // AUTENTICAÇÃO SEGURA: Firebase Authentication é a fonte real da sessão.
+    // localStorage, nickname e o antigo UserID NÃO são usados como prova de identidade.
+    function authEmailForNick(nick) {
+      // Email sintético: não expõe email pessoal e permite manter a UI baseada em nickname.
+      return `${encodeURIComponent(nick.toLowerCase())}@auth.clustercord.local`;
+    }
+
+    function normalizeNickname(nick) {
+      return nick.trim();
+    }
+
+    async function getUserUid(nick) {
+      if (nick === currentUser && authenticatedUid) return authenticatedUid;
+      try {
+        lastFirebaseStep = `Firestore getDoc users/${nick} (restaurar sessão)`;
+      const snap = await getDoc(doc(db, 'users', nick));
+        if (!snap.exists()) return null;
+        return snap.data().uid || null;
+      } catch (e) {
+        console.error('Erro ao obter UID do usuário:', e);
+        return null;
+      }
+    }
+
+    async function ensureAuthUserMapping(nick) {
+      const uid = auth.currentUser?.uid || authenticatedUid;
+      if (!uid || !nick) return false;
+
+      const ref = doc(db, 'authUsers', uid);
+      lastFirebaseStep = `Firestore getDoc authUsers/${uid}`;
+      const snap = await getDoc(ref);
+      if (!snap.exists()) {
+        lastFirebaseStep = `Firestore setDoc authUsers/${uid} (criar mapeamento)`;
+        await setDoc(ref, { nick });
+        return true;
+      }
+
+      const data = snap.data();
+      if (data.nick !== nick) {
+        throw new Error('A identidade autenticada não corresponde ao nickname.');
+      }
+      return true;
+    }
+
+    async function loadProfileForAuthUser(firebaseUser, preferredNick = null) {
+      if (!firebaseUser) return false;
+
+      const nick = preferredNick || localStorage.getItem('clustercord_user');
+      if (!nick) return false;
+
+      await ensureFirestoreAuth(firebaseUser.uid);
+      lastFirebaseStep = `Firestore getDoc users/${nick} após login`;
+      const snap = await getDoc(doc(db, 'users', nick));
+      if (!snap.exists()) return false;
+
+      const data = snap.data();
+      // A identidade real precisa estar vinculada ao UID do Firebase.
+      if (data.uid && data.uid !== firebaseUser.uid) return false;
+
+      // Índice mínimo para que as Firestore Rules consigam resolver UID -> nickname.
+      lastFirebaseStep = `Firestore setDoc authUsers/${firebaseUser.uid} (restaurar sessão)`;
+      await setDoc(doc(db, 'authUsers', firebaseUser.uid), { nick }, { merge: true });
+
+      // Conta legada: vincula o documento ao UID durante a migração.
+      if (!data.uid) {
+        lastFirebaseStep = `Firestore updateDoc users/${nick} (migrar UID)`;
+        await updateDoc(doc(db, 'users', nick), { uid: firebaseUser.uid });
+      }
+
+      localStorage.setItem('clustercord_user', nick); // apenas ponte de UI, nunca credencial
+      await loginUser(nick);
+      return true;
+    }
+
+    onAuthStateChanged(auth, async (firebaseUser) => {
+      if (!firebaseUser || loginFlowInProgress) return;
+      try {
+        const nick = localStorage.getItem('clustercord_user');
+        if (!(await loadProfileForAuthUser(firebaseUser, nick))) {
+          await signOut(auth);
+          localStorage.removeItem('clustercord_user');
+        }
+      } catch (e) {
+        console.error('Erro ao restaurar sessão:', e);
+      }
+    });
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>'"]/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[ch]));
+    }
+
+    function showError(msg) {
+      errorMsg.innerText = msg;
+      errorMsg.style.display = 'block';
+    }
+
+    let lastFirebaseStep = 'início do login';
+    let loginFlowInProgress = false;
+
+    async function ensureFirestoreAuth(expectedUid = null) {
+      const user = auth.currentUser;
+      if (!user) throw new Error('Firebase Authentication ainda não está disponível para o Firestore.');
+      if (expectedUid && user.uid !== expectedUid) throw new Error('UID autenticado inesperado.');
+      await user.getIdToken(true);
+      return user;
+    }
+
+    let authMode = 'login';
+
+    const btnModeLogin = document.getElementById('btn-mode-login');
+    const btnModeRegister = document.getElementById('btn-mode-register');
+
+    function setAuthMode(mode) {
+      authMode = mode === 'register' ? 'register' : 'login';
+      btnModeLogin.classList.toggle('active', authMode === 'login');
+      btnModeRegister.classList.toggle('active', authMode === 'register');
+      btnLogin.textContent = authMode === 'register' ? 'Criar conta' : 'Entrar';
+      errorMsg.style.display = 'none';
+    }
+
+    btnModeLogin?.addEventListener('click', () => setAuthMode('login'));
+    btnModeRegister?.addEventListener('click', () => setAuthMode('register'));
+
+    async function handleLogin() {
+      errorMsg.style.display = 'none';
+      const nick = normalizeNickname(inputNickname.value);
+      const pass = inputPassword.value;
+
+      if (!nick || !pass) {
+        showError(authMode === 'register'
+          ? 'Preencha o Nickname e a Senha para criar a conta.'
+          : 'Preencha o Nickname e a Senha.');
+        return;
+      }
+
+      if (!/^[A-Za-z0-9_.-]{2,32}$/.test(nick)) {
+        showError('Nickname inválido. Use 2–32 caracteres: letras, números, _, . ou -.');
+        return;
+      }
+
+      const email = authEmailForNick(nick);
+      const userRef = doc(db, 'users', nick);
+      loginFlowInProgress = true;
+
+      try {
+        if (authMode === 'register') {
+          // Cadastro explícito: a conta é criada somente no Firebase Authentication.
+          lastFirebaseStep = 'Firebase Authentication createUserWithEmailAndPassword';
+          const cred = await createUserWithEmailAndPassword(auth, email, pass);
+          await ensureFirestoreAuth(cred.user.uid);
+
+          lastFirebaseStep = `Firestore setDoc users/${nick} (novo perfil)`;
+          await setDoc(userRef, {
+            uid: cred.user.uid,
+            nick: nick,
+            bio: 'Disponível no Clustercord!',
+            photo: '',
+            contacts: [],
+            blockedUsers: [],
+            pulledUsers: [],
+            unreadCounts: {}
+          });
+
+          localStorage.setItem('clustercord_user', nick);
+          await ensureAuthUserMapping(nick);
+          await loginUser(nick);
+          return;
+        }
+
+        // Login explícito: nunca tenta criar conta automaticamente.
+        lastFirebaseStep = 'Firebase Authentication signInWithEmailAndPassword';
+        const cred = await signInWithEmailAndPassword(auth, email, pass);
+        await ensureFirestoreAuth(cred.user.uid);
+
+        lastFirebaseStep = `Firestore getDoc users/${nick} após login`;
+        const userSnap = await getDoc(userRef);
+        if (!userSnap.exists()) {
+          // Perfil Firestore ausente: cria o perfil para uma conta Auth já autenticada.
+          lastFirebaseStep = `Firestore setDoc users/${nick} (perfil ausente)`;
+          await setDoc(userRef, {
+            uid: cred.user.uid,
+            nick: nick,
+            bio: 'Disponível no Clustercord!',
+            photo: '',
+            contacts: [],
+            blockedUsers: [],
+            pulledUsers: [],
+            unreadCounts: {}
+          });
+        } else {
+          const data = userSnap.data();
+          if (data.uid && data.uid !== cred.user.uid) {
+            await signOut(auth);
+            showError('Esta conta está vinculada a outra identidade de autenticação.');
+            return;
+          }
+          if (!data.uid) {
+            lastFirebaseStep = `Firestore updateDoc users/${nick} (vincular UID legado)`;
+            await updateDoc(userRef, { uid: cred.user.uid });
+          }
+        }
+
+        localStorage.setItem('clustercord_user', nick);
+        await ensureAuthUserMapping(nick);
+        await loginUser(nick);
+      } catch (err) {
+        console.error('Erro durante autenticação/cadastro:', err);
+        const code = err?.code || '';
+
+        if (code.includes('auth/email-already-in-use')) {
+          showError('Essa conta já existe. Use "Entrar" para acessar.');
+        } else if (code.includes('auth/weak-password')) {
+          showError('A senha é muito fraca. Use pelo menos 6 caracteres.');
+        } else if (code.includes('auth/too-many-requests')) {
+          showError('Muitas tentativas. Aguarde um pouco e tente novamente.');
+        } else if (code.includes('auth/invalid-credential') || code.includes('auth/wrong-password') || code.includes('auth/user-not-found')) {
+          showError('Nickname ou senha incorretos.');
+        } else if (code.includes('permission-denied')) {
+          showError(`PERMISSION-DENIED no passo: ${lastFirebaseStep}`);
+        } else {
+          showError(`Erro Firebase em: ${lastFirebaseStep} (${code || 'sem código'})`);
+        }
+      } finally {
+        loginFlowInProgress = false;
+      }
+    }
+
+    btnLogin.addEventListener('click', handleLogin);
+
+    [inputNickname, inputPassword, inputUserId].forEach(input => {
+      input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') handleLogin();
+      });
+    });
+
+    async function loginUser(nick) {
+      const uid = auth.currentUser?.uid || null;
+      if (uid && authenticatedUid === uid && currentUser === nick && !appScreen.classList.contains('hidden')) return;
+      authenticatedUid = uid;
+      currentUser = nick;
+
+      // Garante o índice UID -> nickname antes de iniciar qualquer query protegida.
+      try {
+        lastFirebaseStep = `Firestore authUsers/${uid || 'UID'} (garantir mapeamento)`;
+        await ensureAuthUserMapping(nick);
+      } catch (e) {
+        console.error('Erro ao vincular identidade Firebase:', e);
+        showError('Não foi possível validar a identidade desta conta.');
+        return;
+      }
+
+      loginScreen.classList.add('hidden');
+      appScreen.classList.remove('hidden');
+
+      onSnapshot(doc(db, "users", currentUser), (docSnap) => {
+        if (docSnap.exists()) {
+          userProfile = docSnap.data();
+          myNameEl.innerText = userProfile.nick || currentUser || "Usuário";
+          myBioEl.innerText = userProfile.bio || "Sem bio";
+          if (userProfile.photo) {
+            myAvatarEl.style.backgroundImage = `url(${userProfile.photo})`;
+            myAvatarEl.innerText = '';
+          } else {
+            myAvatarEl.style.backgroundImage = 'none';
+            myAvatarEl.innerText = currentUser.charAt(0).toUpperCase();
+          }
+          renderSidebar();
+        }
+      });
+
+      ouvirNovasConversasEPaginas();
+    }
+
+    document.getElementById('btn-logout').addEventListener('click', async () => {
+      await leaveVoiceChannel(false);
+      try { await signOut(auth); } catch (e) { console.error('Erro ao sair:', e); }
+      localStorage.removeItem('clustercord_user');
+      location.reload();
+    });
+
+    async function getUserData(nick) {
+      if (usersCache[nick]) return usersCache[nick];
+      try {
+        const snap = await getDoc(doc(db, "users", nick));
+        if (snap.exists()) {
+          usersCache[nick] = snap.data();
+          return snap.data();
+        }
+      } catch(e) {}
+      return { nick: nick, photo: '', bio: '' };
+    }
+
+    document.getElementById('btn-puxar').addEventListener('click', async () => {
+      const target = document.getElementById('target-nickname').value.trim();
+      if (!target || target === currentUser) return;
+
+      const targetSnap = await getDoc(doc(db, "users", target));
+      if (!targetSnap.exists()) {
+        alert("Usuário não encontrado!");
+        return;
+      }
+
+      const targetData = targetSnap.data();
+      if (targetData.blockedUsers && targetData.blockedUsers.includes(currentUser)) {
+        alert("Você foi bloqueado por este usuário e não pode puxá-lo.");
+        return;
+      }
+
+      await updateDoc(doc(db, "users", currentUser), {
+        contacts: arrayUnion(target),
+        pulledUsers: arrayUnion(target)
+      });
+
+      document.getElementById('target-nickname').value = '';
+      selectDirectChat(target);
+    });
+
+    function stableUnreadKey(value) {
+      let hash = 2166136261;
+      const text = String(value);
+      for (let i = 0; i < text.length; i++) {
+        hash ^= text.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      return (hash >>> 0).toString(16);
+    }
+
+    function directUnreadKey(nick) {
+      return `direct_${stableUnreadKey(nick)}`;
+    }
+
+    function channelUnreadKey(groupId, channel) {
+      return `group_${stableUnreadKey(groupId)}_${stableUnreadKey(channel)}`;
+    }
+
+    function getUnreadCount(key) {
+      return Number(userProfile.unreadCounts?.[key] || 0);
+    }
+
+    function createUnreadBadge(count) {
+      if (!count) return '';
+      return `<span class="unread-badge">${count > 99 ? '99+' : count}</span>`;
+    }
+
+    function getGroupUnreadCount(groupId, channels) {
+      return (channels || ['geral']).reduce((total, channel) => {
+        return total + getUnreadCount(channelUnreadKey(groupId, channel));
+      }, 0);
+    }
+
+    async function marcarComoLido(key) {
+      if (!key || !getUnreadCount(key)) return;
+      try {
+        await updateDoc(doc(db, "users", currentUser), {
+          [`unreadCounts.${key}`]: 0
+        });
+      } catch (e) {
+        console.error("Erro ao marcar mensagens como lidas:", e);
+      }
+    }
+
+    function renderSidebar() {
+      contactListEl.innerHTML = '<div class="section-title">Directs</div>';
+
+      const contacts = userProfile.contacts || [];
+      contacts.forEach(async (nick) => {
+        const item = document.createElement('div');
+        item.className = `contact-item ${activeChat?.id === nick ? 'active' : ''}`;
+        item.onclick = () => selectDirectChat(nick);
+
+        const data = await getUserData(nick);
+        const avatarStyle = data.photo ? `style="background-image:url(${data.photo})"` : '';
+        const avatarText = data.photo ? '' : nick.charAt(0).toUpperCase();
+        const unread = getUnreadCount(directUnreadKey(nick));
+
+        item.innerHTML = `
+          <div class="avatar" ${avatarStyle}>${escapeHtml(avatarText)}</div>
+          <div class="user-info">
+            <div class="user-name">${escapeHtml(nick)}</div>
+            <div class="user-bio">${escapeHtml(data.bio || '')}</div>
+          </div>
+          ${createUnreadBadge(unread)}
+        `;
+        contactListEl.appendChild(item);
+      });
+
+      const groupsTitle = document.createElement('div');
+      groupsTitle.className = 'section-title';
+      groupsTitle.innerText = 'Grupos';
+      contactListEl.appendChild(groupsTitle);
+
+      if (unsubscribeGroups) unsubscribeGroups();
+
+      const q = query(collection(db, "groups"), where("memberUids", "array-contains", authenticatedUid));
+      unsubscribeGroups = onSnapshot(q, (snapshot) => {
+        snapshot.forEach((docSnap) => {
+          const group = docSnap.data();
+          const gId = docSnap.id;
+
+          let groupItem = document.getElementById(`group-item-${gId}`);
+          if (!groupItem) {
+            groupItem = document.createElement('div');
+            groupItem.id = `group-item-${gId}`;
+            contactListEl.appendChild(groupItem);
+          }
+
+          const unread = getGroupUnreadCount(gId, group.channels || ['geral']);
+
+          groupItem.className = `contact-item ${activeChat?.id === gId ? 'active' : ''}`;
+          groupItem.onclick = () => selectGroupChat(gId, group);
+          groupItem.innerHTML = `
+            <div class="avatar" style="background:#0088ff; color:#000;">#</div>
+            <div class="user-info">
+              <div class="user-name">${escapeHtml(group.name)}</div>
+              <div class="user-bio">${Number(group.members?.length || 0)} membros</div>
+            </div>
+            ${createUnreadBadge(unread)}
+          `;
+        });
+      });
+    }
+
+    async function selectDirectChat(targetNick) {
+      activeChat = { type: 'direct', id: targetNick, name: targetNick };
+      document.getElementById('channels-bar').classList.add('hidden');
+      await marcarComoLido(directUnreadKey(targetNick));
+      
+      const targetData = await getUserData(targetNick);
+      document.getElementById('active-chat-name').innerText = targetNick;
+      document.getElementById('active-chat-sub').innerText = targetData.bio || 'Conversa Direta';
+      
+      const activeAvatar = document.getElementById('active-avatar');
+      if (targetData.photo) {
+        activeAvatar.style.backgroundImage = `url(${targetData.photo})`;
+        activeAvatar.innerText = '';
+      } else {
+        activeAvatar.style.backgroundImage = 'none';
+        activeAvatar.innerText = targetNick.charAt(0).toUpperCase();
+      }
+
+      const actionsArea = document.getElementById('header-actions');
+      actionsArea.innerHTML = '';
+
+      if (targetData.pulledUsers && targetData.pulledUsers.includes(currentUser)) {
+        const btnBlock = document.createElement('button');
+        btnBlock.className = 'btn-small';
+        btnBlock.style.background = 'var(--accent-danger)';
+        btnBlock.style.color = '#fff';
+        btnBlock.innerText = 'Bloquear e Apagar Conversa';
+        btnBlock.onclick = () => blockUser(targetNick);
+        actionsArea.appendChild(btnBlock);
+      }
+
+      renderSidebar();
+      carregarMensagens();
+    }
+
+    async function blockUser(targetNick) {
+      if (!confirm(`Deseja bloquear ${targetNick}? Todas as mensagens serão apagadas e ele perderá seu acesso.`)) return;
+
+      await updateDoc(doc(db, "users", currentUser), {
+        blockedUsers: arrayUnion(targetNick),
+        contacts: arrayRemove(targetNick)
+      });
+
+      await updateDoc(doc(db, "users", targetNick), {
+        pulledUsers: arrayRemove(currentUser),
+        contacts: arrayRemove(currentUser)
+      });
+
+      const chatId = [currentUser, targetNick].sort().join("_");
+      const [sentSnap, receivedSnap] = await Promise.all([
+        getDocs(query(
+          collection(db, "messages"),
+          where("chatId", "==", chatId),
+          where("senderUid", "==", authenticatedUid)
+        )),
+        getDocs(query(
+          collection(db, "messages"),
+          where("chatId", "==", chatId),
+          where("receiverUid", "==", authenticatedUid)
+        ))
+      ]);
+      const ids = new Set();
+      sentSnap.forEach(d => ids.add(d.id));
+      receivedSnap.forEach(d => ids.add(d.id));
+      await Promise.all([...ids].map(id => deleteDoc(doc(db, "messages", id))));
+
+      activeChat = null;
+      document.getElementById('active-chat-name').innerText = 'Selecione uma conversa';
+      document.getElementById('active-chat-sub').innerText = '';
+      document.getElementById('header-actions').innerHTML = '';
+      chatMessagesEl.innerHTML = '';
+      renderSidebar();
+    }
+
+    async function selectGroupChat(groupId, groupData) {
+      await leaveVoiceChannel(false);
+      activeChat = { type: 'group', id: groupId, name: groupData.name, data: groupData };
+      activeChannel = groupData.channels ? groupData.channels[0] : 'geral';
+      marcarComoLido(channelUnreadKey(groupId, activeChannel));
+
+      document.getElementById('active-chat-name').innerText = groupData.name;
+      document.getElementById('active-chat-sub').innerText = `Dono: ${groupData.owner}`;
+      
+      const activeAvatar = document.getElementById('active-avatar');
+      activeAvatar.style.backgroundImage = 'none';
+      activeAvatar.innerText = '#';
+
+      const actionsArea = document.getElementById('header-actions');
+      actionsArea.innerHTML = '';
+      const btnManage = document.createElement('button');
+      btnManage.className = 'btn-small btn-secondary';
+      btnManage.innerText = '⚙️ Gerenciar Grupo';
+      btnManage.onclick = () => openManageModal();
+      actionsArea.appendChild(btnManage);
+
+      const btnLeave = document.createElement('button');
+      btnLeave.className = 'btn-small';
+      btnLeave.style.background = 'var(--accent-danger)';
+      btnLeave.style.color = '#fff';
+      btnLeave.innerText = 'Sair do Grupo';
+      btnLeave.onclick = () => sairDoGrupo(groupId, groupData);
+      actionsArea.appendChild(btnLeave);
+
+      renderChannels();
+      renderSidebar();
+      carregarMensagens();
+    }
+
+    async function sairDoGrupo(groupId, groupData) {
+      if (!confirm(`Deseja realmente sair do grupo "${groupData.name}"?`)) return;
+      if (activeVoiceChannel?.groupId === groupId) await leaveVoiceChannel(false);
+
+      const groupRef = doc(db, "groups", groupId);
+      const groupSnap = await getDoc(groupRef);
+      if (!groupSnap.exists()) return;
+
+      const group = groupSnap.data();
+      const memberNames = group.members || [];
+      const memberUids = group.memberUids || [];
+      const currentIndex = memberNames.indexOf(currentUser);
+
+      const remainingMembers = memberNames.filter(m => m !== currentUser);
+      const remainingMemberUids = currentIndex >= 0
+        ? memberUids.filter((uid, index) => index !== currentIndex)
+        : memberUids.filter(uid => uid !== authenticatedUid);
+
+      // Se o dono sair, o primeiro membro restante assume a propriedade.
+      // Se não houver mais ninguém, o grupo é removido.
+      if (remainingMembers.length === 0) {
+        await deleteDoc(groupRef);
+      } else {
+        const changes = {
+          members: remainingMembers,
+          memberUids: remainingMemberUids
+        };
+        if (group.owner === currentUser || group.ownerUid === authenticatedUid) {
+          changes.owner = remainingMembers[0];
+          changes.ownerUid = remainingMemberUids[0];
+        }
+        await updateDoc(groupRef, changes);
+      }
+
+      activeChat = null;
+      activeChannel = 'geral';
+      document.getElementById('active-chat-name').innerText = 'Selecione uma conversa';
+      document.getElementById('active-chat-sub').innerText = '';
+      document.getElementById('active-avatar').style.backgroundImage = 'none';
+      document.getElementById('active-avatar').innerText = '?';
+      document.getElementById('header-actions').innerHTML = '';
+      document.getElementById('channels-bar').classList.add('hidden');
+      chatMessagesEl.innerHTML = '';
+      renderSidebar();
+    }
+
+    function renderChannels() {
+      const bar = document.getElementById('channels-bar');
+      bar.classList.remove('hidden');
+      bar.innerHTML = '';
+
+      const channels = activeChat.data.channels || ['geral'];
+      channels.forEach(ch => {
+        const tab = document.createElement('div');
+        tab.className = `channel-tab ${activeChannel === ch && !activeVoiceChannel ? 'active' : ''}`;
+
+        const count = getUnreadCount(channelUnreadKey(activeChat.id, ch));
+        tab.innerHTML = `<span># ${escapeHtml(ch)}</span>${createUnreadBadge(count)}`;
+
+        tab.onclick = async () => {
+          await leaveVoiceChannel(false);
+          activeVoiceChannel = null;
+          activeChannel = ch;
+          await marcarComoLido(channelUnreadKey(activeChat.id, ch));
+          renderChannels();
+          renderSidebar();
+          carregarMensagens();
+        };
+        bar.appendChild(tab);
+      });
+
+      const voiceChannels = activeChat.data.voiceChannels || [];
+      voiceChannels.forEach(ch => {
+        const tab = document.createElement('div');
+        tab.className = `channel-tab voice-channel ${activeVoiceChannel?.name === ch ? 'active' : ''}`;
+        tab.innerHTML = `<span>🎙️ ${escapeHtml(ch)}</span>`;
+        tab.onclick = () => joinVoiceChannel(activeChat.id, ch);
+        bar.appendChild(tab);
+      });
+    }
+
+    async function incrementarNaoLidas(nick, key) {
+      try {
+        await updateDoc(doc(db, "users", nick), {
+          [`unreadCounts.${key}`]: increment(1)
+        });
+      } catch (e) {
+        console.error(`Erro ao atualizar não lidas de ${nick}:`, e);
+      }
+    }
+
+
+    function voicePairId(a, b) {
+      return [a, b].sort().map(v => encodeURIComponent(v)).join('__');
+    }
+
+    function voiceConnectionRef(groupId, remoteNick) {
+      const pairId = voicePairId(currentUser, remoteNick);
+      return doc(db, "voiceRooms", groupId, "connections", pairId);
+    }
+
+    function showVoicePanel(groupId, channelName, users = []) {
+      chatMessagesEl.innerHTML = `
+        <div class="voice-panel">
+          <div class="voice-panel-card">
+            <div style="font-size:1.15rem;font-weight:700;">🎙️ ${channelName}</div>
+            <div style="font-size:0.8rem;color:var(--text-muted);margin-top:0.3rem;">
+              Canal de voz • ${users.length} conectado(s)
+            </div>
+            <div class="voice-users" id="voice-users-list"></div>
+            <button class="btn-small" id="btn-leave-voice" style="background:var(--accent-danger);color:#fff;">
+              Desconectar
+            </button>
+          </div>
+          <div id="voice-audios" class="voice-audios"></div>
+        </div>
+      `;
+
+      const list = document.getElementById('voice-users-list');
+      if (!users.length) {
+        list.innerHTML = '<div class="voice-empty">Ninguém conectado ainda.</div>';
+      } else {
+        users.forEach(nick => {
+          const item = document.createElement('div');
+          item.className = 'voice-user';
+          item.innerHTML = `<span>🎤</span><span>${escapeHtml(nick)}</span><span class="voice-status">Conectado</span>`;
+          list.appendChild(item);
+        });
+      }
+
+      document.getElementById('btn-leave-voice').onclick = () => leaveVoiceChannel(true);
+    }
+
+    async function setupVoicePeer(groupId, remoteNick, channelName) {
+      if (voicePeers.has(remoteNick)) return;
+
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' }
+        ]
+      });
+
+      voicePeers.set(remoteNick, { pc, candidateIds: new Set(), pendingCandidates: [] });
+      voiceCandidateQueues.set(remoteNick, []);
+
+      if (voiceLocalStream) {
+        voiceLocalStream.getTracks().forEach(track => pc.addTrack(track, voiceLocalStream));
+      }
+
+      pc.ontrack = (event) => {
+        const stream = event.streams[0];
+        if (!stream) return;
+        let audio = document.getElementById(`voice-audio-${CSS.escape(remoteNick)}`);
+        if (!audio) {
+          audio = document.createElement('audio');
+          audio.id = `voice-audio-${remoteNick.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+          audio.autoplay = true;
+          audio.playsInline = true;
+          audio.className = 'voice-audios';
+          document.getElementById('voice-audios')?.appendChild(audio);
+        }
+        audio.srcObject = stream;
+        audio.play().catch(() => {});
+      };
+
+      pc.onicecandidate = async (event) => {
+        if (!event.candidate) return;
+        try {
+          const candidatesRef = collection(db, "voiceRooms", groupId, "connections", voicePairId(currentUser, remoteNick), "candidates");
+          await addDoc(candidatesRef, {
+            from: currentUser,
+            candidate: event.candidate.toJSON(),
+            createdAt: serverTimestamp()
+          });
+        } catch (e) {
+          console.error("Erro ao enviar candidato ICE:", e);
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) {
+          cleanupVoicePeer(remoteNick);
+        }
+      };
+
+      const connRef = voiceConnectionRef(groupId, remoteNick);
+      const isCaller = currentUser.localeCompare(remoteNick) < 0;
+
+      if (isCaller) {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await setDoc(connRef, {
+          caller: currentUser,
+          callee: remoteNick,
+          channel: channelName,
+          offer: { type: offer.type, sdp: offer.sdp },
+          answer: null,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
+
+      const unsubscribeConnection = onSnapshot(connRef, async (snap) => {
+        if (!snap.exists()) return;
+        const data = snap.data();
+        if (data.channel !== channelName) return;
+
+        try {
+          if (!isCaller && data.offer && !pc.currentRemoteDescription) {
+            await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await updateDoc(connRef, {
+              answer: { type: answer.type, sdp: answer.sdp },
+              updatedAt: serverTimestamp()
+            });
+          } else if (isCaller && data.answer && !pc.currentRemoteDescription) {
+            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+          }
+
+          const queue = voiceCandidateQueues.get(remoteNick) || [];
+          while (queue.length && pc.remoteDescription) {
+            const candidate = queue.shift();
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          }
+        } catch (e) {
+          console.error("Erro na negociação de voz:", e);
+        }
+      });
+
+      voicePeers.get(remoteNick).unsubscribeConnection = unsubscribeConnection;
+
+      const candidatesRef = collection(db, "voiceRooms", groupId, "connections", voicePairId(currentUser, remoteNick), "candidates");
+      const unsubscribeCandidates = onSnapshot(candidatesRef, async (snap) => {
+        for (const change of snap.docChanges()) {
+          if (change.type !== 'added') continue;
+          const data = change.doc.data();
+          if (data.from === currentUser) continue;
+
+          const peer = voicePeers.get(remoteNick);
+          if (!peer) continue;
+          if (peer.candidateIds.has(change.doc.id)) continue;
+          peer.candidateIds.add(change.doc.id);
+
+          try {
+            if (peer.pc.remoteDescription) {
+              await peer.pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+            } else {
+              const queue = voiceCandidateQueues.get(remoteNick) || [];
+              queue.push(data.candidate);
+              voiceCandidateQueues.set(remoteNick, queue);
+            }
+          } catch (e) {
+            console.error("Erro ao adicionar candidato ICE:", e);
+          }
+        }
+      });
+
+      voicePeers.get(remoteNick).unsubscribeCandidates = unsubscribeCandidates;
+    }
+
+    function cleanupVoicePeer(remoteNick) {
+      const peer = voicePeers.get(remoteNick);
+      if (!peer) return;
+
+      try { peer.unsubscribeConnection?.(); } catch (e) {}
+      try { peer.unsubscribeCandidates?.(); } catch (e) {}
+      try { peer.pc.close(); } catch (e) {}
+
+      const audioId = `voice-audio-${remoteNick.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      document.getElementById(audioId)?.remove();
+
+      voicePeers.delete(remoteNick);
+      voiceCandidateQueues.delete(remoteNick);
+    }
+
+    async function joinVoiceChannel(groupId, channelName) {
+      if (!activeChat || activeChat.id !== groupId) return;
+
+      try {
+        if (activeVoiceChannel?.groupId === groupId && activeVoiceChannel?.name === channelName) return;
+
+        await leaveVoiceChannel(false);
+
+        if (!navigator.mediaDevices?.getUserMedia) {
+          alert("Seu navegador não disponibiliza acesso ao microfone neste contexto.");
+          return;
+        }
+
+        voiceLocalStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          },
+          video: false
+        });
+
+        activeVoiceChannel = { groupId, name: channelName };
+
+        const participantRef = doc(db, "voiceRooms", groupId, "participants", currentUser);
+        await setDoc(participantRef, {
+          user: currentUser,
+          channel: channelName,
+          joinedAt: serverTimestamp()
+        });
+
+        const participantsRef = collection(db, "voiceRooms", groupId, "participants");
+
+        unsubscribeVoiceParticipants = onSnapshot(participantsRef, async (snapshot) => {
+          const users = [];
+          snapshot.forEach(d => {
+            const data = d.data();
+            if (data.channel === channelName) users.push(d.id);
+          });
+
+          showVoicePanel(groupId, channelName, users);
+          renderChannels();
+
+          for (const nick of users) {
+            if (nick !== currentUser && !voicePeers.has(nick)) {
+              await setupVoicePeer(groupId, nick, channelName);
+            }
+          }
+
+          for (const nick of [...voicePeers.keys()]) {
+            if (!users.includes(nick)) cleanupVoicePeer(nick);
+          }
+        });
+
+        document.getElementById('active-chat-sub').innerText = `🎙️ Canal de voz: ${channelName}`;
+        renderChannels();
+      } catch (e) {
+        console.error("Erro ao entrar no canal de voz:", e);
+        if (voiceLocalStream) {
+          voiceLocalStream.getTracks().forEach(t => t.stop());
+          voiceLocalStream = null;
+        }
+        activeVoiceChannel = null;
+        alert("Não foi possível acessar o microfone. Verifique a permissão do navegador.");
+      }
+    }
+
+    async function leaveVoiceChannel(showText = true) {
+      const previous = activeVoiceChannel;
+      if (!previous && !voiceLocalStream && !unsubscribeVoiceParticipants) return;
+
+      try { unsubscribeVoiceParticipants?.(); } catch (e) {}
+      unsubscribeVoiceParticipants = null;
+
+      for (const nick of [...voicePeers.keys()]) cleanupVoicePeer(nick);
+
+      if (previous) {
+        try {
+          await deleteDoc(doc(db, "voiceRooms", previous.groupId, "participants", currentUser));
+        } catch (e) {
+          console.error("Erro ao sair do canal de voz:", e);
+        }
+      }
+
+      if (voiceLocalStream) {
+        voiceLocalStream.getTracks().forEach(track => track.stop());
+        voiceLocalStream = null;
+      }
+
+      activeVoiceChannel = null;
+
+      if (showText && activeChat?.type === 'group') {
+        activeChannel = activeChat.data.channels?.[0] || 'geral';
+        renderChannels();
+        carregarMensagens();
+        document.getElementById('active-chat-sub').innerText = `Dono: ${activeChat.data.owner}`;
+      }
+    }
+
+    async function sendMessage() {
+      const text = messageInput.value.trim();
+      if (!text || !activeChat) return;
+
+      const msgData = {
+        sender: currentUser,
+        senderUid: authenticatedUid,
+        text: text,
+        timestamp: serverTimestamp()
+      };
+
+      if (activeChat.type === 'direct') {
+        msgData.chatId = [currentUser, activeChat.id].sort().join("_");
+        msgData.receiver = activeChat.id;
+
+        const recSnap = await getDoc(doc(db, "users", activeChat.id));
+        if (!recSnap.exists()) {
+          alert("Usuário não encontrado.");
+          return;
+        }
+
+        const recData = recSnap.data();
+        const receiverUid = recData.uid || null;
+        if (!receiverUid) {
+          alert("Este usuário ainda não está vinculado ao login seguro.");
+          return;
+        }
+
+        msgData.receiverUid = receiverUid;
+
+        if (!recData.blockedUsers || !recData.blockedUsers.includes(currentUser)) {
+          await updateDoc(doc(db, "users", activeChat.id), {
+            contacts: arrayUnion(currentUser)
+          });
+        }
+      } else {
+        msgData.groupId = activeChat.id;
+        msgData.channelId = activeChannel;
+      }
+
+      try {
+        await addDoc(collection(db, "messages"), msgData);
+      } catch (err) {
+        console.error('Erro ao enviar mensagem:', err);
+        messageInput.value = text;
+        alert(`Não foi possível enviar a mensagem: ${err?.code || err?.message || 'erro desconhecido'}`);
+        return;
+      }
+
+      messageInput.value = '';
+
+      if (activeChat.type === 'direct') {
+        const recSnap = await getDoc(doc(db, "users", activeChat.id));
+        if (recSnap.exists()) {
+          const recData = recSnap.data();
+          if (!recData.blockedUsers || !recData.blockedUsers.includes(currentUser)) {
+            await incrementarNaoLidas(
+              activeChat.id,
+              directUnreadKey(currentUser)
+            );
+          }
+        }
+      } else {
+        const members = activeChat.data.members || [];
+        const unreadKey = channelUnreadKey(activeChat.id, activeChannel);
+
+        await Promise.all(
+          members
+            .filter(member => member !== currentUser)
+            .map(member => incrementarNaoLidas(member, unreadKey))
+        );
+      }
+    }
+
+
+    function updateVoiceControls() {
+      const inVoice = !!localVoiceStream;
+      if (!voiceControlsEl) return;
+
+      voiceControlsEl.classList.toggle('hidden', !inVoice);
+
+      if (btnMuteMic) {
+        btnMuteMic.classList.toggle('active', isMicMuted);
+        btnMuteMic.innerText = isMicMuted ? '🔇 Desbloquear microfone' : '🎙️ Bloquear microfone';
+      }
+
+      if (btnShareScreen) {
+        btnShareScreen.classList.toggle('active', isScreenSharing);
+        btnShareScreen.innerText = isScreenSharing ? '🖥️ Parar transmissão' : '🖥️ Compartilhar tela';
+      }
+
+      if (voiceStatusEl && inVoice) {
+        voiceStatusEl.innerText = isScreenSharing
+          ? 'Conectado • transmitindo tela'
+          : (isMicMuted ? 'Conectado • microfone bloqueado' : 'Conectado • microfone ativo');
+      }
+    }
+
+    async function toggleMicrophone() {
+      if (!localVoiceStream) return;
+
+      const tracks = localVoiceStream.getAudioTracks();
+      if (!tracks.length) return;
+
+      isMicMuted = !isMicMuted;
+      tracks.forEach(track => track.enabled = !isMicMuted);
+
+      updateVoiceControls();
+    }
+
+    async function toggleScreenShare() {
+      if (!localVoiceStream) return;
+
+      if (isScreenSharing) {
+        if (localScreenStream) {
+          localScreenStream.getTracks().forEach(track => track.stop());
+          localScreenStream = null;
+        }
+        isScreenSharing = false;
+        updateVoiceControls();
+        return;
+      }
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        alert('Seu navegador não permite compartilhamento de tela neste ambiente.');
+        return;
+      }
+
+      try {
+        localScreenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: true
+        });
+
+        isScreenSharing = true;
+        updateVoiceControls();
+
+        const videoTrack = localScreenStream.getVideoTracks()[0];
+
+        // Substitui a faixa de vídeo em todos os RTCPeerConnections usados
+        // pela chamada, quando a implementação existente os expõe.
+        if (typeof peerConnections !== 'undefined' && peerConnections) {
+          Object.values(peerConnections).forEach(pc => {
+            const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+            if (sender && videoTrack) sender.replaceTrack(videoTrack);
+          });
+        }
+
+        videoTrack.onended = () => {
+          if (localScreenStream) {
+            localScreenStream.getTracks().forEach(track => track.stop());
+            localScreenStream = null;
+          }
+          isScreenSharing = false;
+          updateVoiceControls();
+        };
+      } catch (err) {
+        console.error('Compartilhamento de tela cancelado/indisponível:', err);
+      }
+    }
+
+    function stopLocalVoiceMedia() {
+      if (localScreenStream) {
+        localScreenStream.getTracks().forEach(track => track.stop());
+        localScreenStream = null;
+      }
+      if (localVoiceStream) {
+        localVoiceStream.getTracks().forEach(track => track.stop());
+        localVoiceStream = null;
+      }
+
+      isMicMuted = false;
+      isScreenSharing = false;
+      updateVoiceControls();
+    }
+
+    if (btnMuteMic) btnMuteMic.addEventListener('click', toggleMicrophone);
+    if (btnShareScreen) btnShareScreen.addEventListener('click', toggleScreenShare);
+    if (btnLeaveVoice) btnLeaveVoice.addEventListener('click', () => {
+      // Usa a função existente de saída de voz quando disponível.
+      if (typeof leaveVoiceChannel === 'function') {
+        leaveVoiceChannel();
+      } else {
+        stopLocalVoiceMedia();
+      }
+    });
+
+    btnSend.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
+
+    function carregarMensagens() {
+      if (unsubscribeMessages) unsubscribeMessages();
+      if (!activeChat) return;
+
+      let cleanup = null;
+
+      const renderMessages = async (msgs) => {
+        msgs.sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+        chatMessagesEl.innerHTML = '';
+
+        for (let msg of msgs) {
+          const isMe = msg.sender === currentUser;
+          const wrapper = document.createElement('div');
+          wrapper.className = `message-wrapper ${isMe ? 'sent' : 'received'}`;
+
+          const senderData = await getUserData(msg.sender);
+          const avatarDiv = document.createElement('div');
+          avatarDiv.className = 'msg-avatar';
+          if (senderData.photo) {
+            avatarDiv.style.backgroundImage = `url(${senderData.photo})`;
+          } else {
+            avatarDiv.innerText = msg.sender.charAt(0).toUpperCase();
+          }
+
+          const contentDiv = document.createElement('div');
+          contentDiv.className = 'message-content';
+
+          if (activeChat.type === 'group' || !isMe) {
+            const author = document.createElement('div');
+            author.className = 'msg-author';
+            author.innerText = msg.sender;
+            contentDiv.appendChild(author);
+          }
+
+          const bubble = document.createElement('div');
+          bubble.className = 'message-bubble';
+          bubble.innerText = msg.text;
+
+          if (activeChat.type === 'group' && activeChat.data.owner === currentUser) {
+            const btnDel = document.createElement('button');
+            btnDel.className = 'btn-delete-msg';
+            btnDel.innerText = '✕';
+            btnDel.title = 'Apagar mensagem';
+            btnDel.onclick = async () => {
+              await deleteDoc(doc(db, "messages", msg.id));
+            };
+            bubble.appendChild(btnDel);
+          }
+
+          contentDiv.appendChild(bubble);
+          wrapper.appendChild(avatarDiv);
+          wrapper.appendChild(contentDiv);
+          chatMessagesEl.appendChild(wrapper);
+        }
+
+        chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+      };
+
+      if (activeChat.type === 'direct') {
+        const chatId = [currentUser, activeChat.id].sort().join("_");
+        const bySender = query(
+          collection(db, "messages"),
+          where("chatId", "==", chatId),
+          where("senderUid", "==", authenticatedUid)
+        );
+        const byReceiver = query(
+          collection(db, "messages"),
+          where("chatId", "==", chatId),
+          where("receiverUid", "==", authenticatedUid)
+        );
+
+        let sentDocs = new Map();
+        let receivedDocs = new Map();
+        let renderVersion = 0;
+        const rerender = async () => {
+          const version = ++renderVersion;
+          const merged = new Map([...sentDocs, ...receivedDocs]);
+          if (version !== renderVersion) return;
+          await renderMessages([...merged.values()]);
+        };
+
+        const unsubSent = onSnapshot(bySender, async (snap) => {
+          sentDocs = new Map(snap.docs.map(d => [d.id, { id: d.id, ...d.data() }]));
+          await rerender();
+        }, (err) => console.error('Erro ao carregar mensagens enviadas:', err));
+
+        const unsubReceived = onSnapshot(byReceiver, async (snap) => {
+          receivedDocs = new Map(snap.docs.map(d => [d.id, { id: d.id, ...d.data() }]));
+          await rerender();
+        }, (err) => console.error('Erro ao carregar mensagens recebidas:', err));
+
+        cleanup = () => {
+          try { unsubSent(); } catch (e) {}
+          try { unsubReceived(); } catch (e) {}
+        };
+      } else {
+        const q = query(
+          collection(db, "messages"),
+          where("groupId", "==", activeChat.id),
+          where("channelId", "==", activeChannel)
+        );
+        cleanup = onSnapshot(q, async (snapshot) => {
+          const msgs = [];
+          snapshot.forEach(doc => msgs.push({ id: doc.id, ...doc.data() }));
+          await renderMessages(msgs);
+        }, (err) => console.error('Erro ao carregar mensagens do grupo:', err));
+      }
+
+      unsubscribeMessages = cleanup;
+    }
+
+    function ouvirNovasConversasEPaginas() {
+      const q = query(collection(db, "messages"), where("receiverUid", "==", authenticatedUid));
+      onSnapshot(q, (snapshot) => {
+        snapshot.forEach(docSnap => {
+          const msg = docSnap.data();
+          if (!userProfile.contacts?.includes(msg.sender)) {
+            updateDoc(doc(db, "users", currentUser), {
+              contacts: arrayUnion(msg.sender)
+            });
+          }
+        });
+      });
+    }
+
+    document.getElementById('my-profile-btn').onclick = () => {
+      document.getElementById('edit-bio').value = userProfile.bio || '';
+      document.getElementById('edit-photo-url').value = userProfile.photo || '';
+      document.getElementById('profile-modal').classList.remove('hidden');
+    };
+
+    document.getElementById('close-profile-modal').onclick = () => {
+      document.getElementById('profile-modal').classList.add('hidden');
+    };
+
+    document.getElementById('btn-save-profile').onclick = async () => {
+      const bio = document.getElementById('edit-bio').value.trim();
+      let photo = document.getElementById('edit-photo-url').value.trim();
+      const fileInput = document.getElementById('edit-photo-file');
+
+      if (fileInput.files.length > 0) {
+        const file = fileInput.files[0];
+        photo = await compressImage(file);
+      }
+
+      await updateDoc(doc(db, "users", currentUser), { bio: bio, photo: photo });
+      document.getElementById('profile-modal').classList.add('hidden');
+    };
+
+    function compressImage(file) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+          const img = new Image();
+          img.src = event.target.result;
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 96;
+            canvas.height = 96;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, 96, 96);
+            resolve(canvas.toDataURL('image/jpeg', 0.7));
+          };
+        };
+      });
+    }
+
+    document.getElementById('btn-create-group-modal').onclick = () => {
+      document.getElementById('group-modal').classList.remove('hidden');
+    };
+    document.getElementById('close-group-modal').onclick = () => {
+      document.getElementById('group-modal').classList.add('hidden');
+    };
+
+    document.getElementById('btn-save-group').onclick = async () => {
+      const name = document.getElementById('group-name-input').value.trim();
+      const membersRaw = document.getElementById('group-members-input').value.split(',');
+      const members = [currentUser];
+
+      membersRaw.forEach(m => {
+        const trimmed = m.trim();
+        if (trimmed && !members.includes(trimmed)) members.push(trimmed);
+      });
+
+      if (!name) return;
+
+      const memberUids = [];
+      for (const member of members) {
+        const uid = await getUserUid(member);
+        if (!uid) {
+          alert(`O usuário "${member}" não existe ou ainda não está vinculado ao login seguro.`);
+          return;
+        }
+        memberUids.push(uid);
+      }
+
+      await addDoc(collection(db, "groups"), {
+        name: name,
+        owner: currentUser,
+        ownerUid: authenticatedUid,
+        members: members,
+        memberUids: memberUids,
+        channels: ['geral']
+      });
+
+      document.getElementById('group-modal').classList.add('hidden');
+    };
+
+    function openManageModal() {
+      const modal = document.getElementById('manage-group-modal');
+      const ownerControls = document.getElementById('owner-controls');
+      const isOwner = activeChat.data.owner === currentUser;
+
+      if (isOwner) ownerControls.classList.remove('hidden');
+      else ownerControls.classList.add('hidden');
+
+      renderMembersList();
+      modal.classList.remove('hidden');
+    }
+
+    document.getElementById('close-manage-modal').onclick = () => {
+      document.getElementById('manage-group-modal').classList.add('hidden');
+    };
+
+    function renderMembersList() {
+      const list = document.getElementById('group-members-list');
+      list.innerHTML = '';
+      const isOwner = activeChat.data.owner === currentUser;
+
+      activeChat.data.members.forEach(m => {
+        const item = document.createElement('div');
+        item.style.display = 'flex';
+        item.style.justifyContent = 'space-between';
+        item.style.alignItems = 'center';
+        item.style.padding = '0.4rem 0';
+
+        item.innerHTML = `<span>${escapeHtml(m)} ${m === activeChat.data.owner ? '(Dono)' : ''}</span>`;
+
+        if (isOwner && m !== currentUser) {
+          const btnKick = document.createElement('button');
+          btnKick.className = 'btn-small';
+          btnKick.style.background = 'var(--accent-danger)';
+          btnKick.style.color = '#fff';
+          btnKick.innerText = 'Expulsar';
+          btnKick.onclick = async () => {
+            const memberUid = await getUserUid(m);
+            if (!memberUid) {
+              alert('Não foi possível localizar a identidade segura deste membro.');
+              return;
+            }
+
+            await updateDoc(doc(db, "groups", activeChat.id), {
+              members: arrayRemove(m),
+              memberUids: arrayRemove(memberUid)
+            });
+            activeChat.data.members = activeChat.data.members.filter(x => x !== m);
+            activeChat.data.memberUids = (activeChat.data.memberUids || []).filter(x => x !== memberUid);
+            renderMembersList();
+          };
+          item.appendChild(btnKick);
+        }
+        list.appendChild(item);
+      });
+    }
+
+    document.getElementById('btn-rename-group').onclick = async () => {
+      const newName = document.getElementById('new-group-name').value.trim();
+      if (!newName) return;
+      await updateDoc(doc(db, "groups", activeChat.id), { name: newName });
+      activeChat.data.name = newName;
+      document.getElementById('active-chat-name').innerText = newName;
+    };
+
+    document.getElementById('btn-add-channel').onclick = async () => {
+      const ch = document.getElementById('new-channel-name').value.trim().toLowerCase();
+      if (!ch) return;
+      await updateDoc(doc(db, "groups", activeChat.id), {
+        channels: arrayUnion(ch)
+      });
+      activeChat.data.channels.push(ch);
+      renderChannels();
+      document.getElementById('new-channel-name').value = '';
+    };
+
+
+    document.getElementById('btn-add-voice-channel').onclick = async () => {
+      const ch = document.getElementById('new-voice-channel-name').value.trim();
+      if (!ch || !activeChat?.id) return;
+
+      const groupRef = doc(db, "groups", activeChat.id);
+      const groupSnap = await getDoc(groupRef);
+      if (!groupSnap.exists()) return;
+
+      const group = groupSnap.data();
+      if (group.owner !== currentUser) {
+        alert("Somente o dono pode criar canais de voz.");
+        return;
+      }
+
+      const existing = group.voiceChannels || [];
+      if (existing.some(x => x.toLowerCase() === ch.toLowerCase())) {
+        alert("Já existe um canal de voz com esse nome.");
+        return;
+      }
+
+      await updateDoc(groupRef, {
+        voiceChannels: arrayUnion(ch)
+      });
+
+      activeChat.data.voiceChannels = [...existing, ch];
+      renderChannels();
+      document.getElementById('new-voice-channel-name').value = '';
+    };
+
+    document.getElementById('btn-add-member').onclick = async () => {
+      const nick = document.getElementById('new-member-nick').value.trim();
+      if (!nick) return;
+
+      const memberUid = await getUserUid(nick);
+      if (!memberUid) {
+        alert('Usuário não encontrado ou ainda não está vinculado ao login seguro.');
+        return;
+      }
+
+      await updateDoc(doc(db, "groups", activeChat.id), {
+        members: arrayUnion(nick),
+        memberUids: arrayUnion(memberUid)
+      });
+      activeChat.data.members.push(nick);
+      activeChat.data.memberUids = [...(activeChat.data.memberUids || []), memberUid];
+      renderMembersList();
+      document.getElementById('new-member-nick').value = '';
+    };
+
+
+      /* --- RECURSOS ADICIONAIS: HORÁRIO E RESPOSTA POR CONTEXTO --- */
+      (() => {
+        const replyMenu = document.createElement('div');
+        replyMenu.id = 'message-context-menu';
+        replyMenu.innerHTML = '<button type="button">↩ Responder</button>';
+        replyMenu.style.cssText = `
+          position: fixed;
+          display: none;
+          min-width: 150px;
+          padding: 4px;
+          background: var(--bg-panel);
+          border: 1px solid var(--border-color);
+          border-radius: 8px;
+          box-shadow: 0 8px 24px rgba(0,0,0,.45);
+          z-index: 1000;
+        `;
+        replyMenu.querySelector('button').style.cssText = `
+          width: 100%;
+          padding: 8px 10px;
+          background: transparent;
+          color: var(--text-main);
+          border: 0;
+          border-radius: 6px;
+          text-align: left;
+          cursor: pointer;
+          font: 600 .8rem Inter, sans-serif;
+        `;
+        document.body.appendChild(replyMenu);
+
+        let replyTarget = null;
+
+        const hideReplyMenu = () => {
+          replyMenu.style.display = 'none';
+          replyTarget = null;
+        };
+
+        const formatMessageTime = (timestamp) => {
+          if (!timestamp) return '';
+          const date = typeof timestamp.toDate === 'function'
+            ? timestamp.toDate()
+            : new Date(timestamp);
+          if (Number.isNaN(date.getTime())) return '';
+          return date.toLocaleTimeString('pt-BR', {
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+        };
+
+        /* Visual da resposta: a citação e o texto novo ficam em blocos separados. */
+        const REPLY_START = '↩ Respondendo a: ';
+        const QUOTE_START = '┌─ Mensagem citada ─────────────────';
+        const QUOTE_END = '└──────────────────────────────────';
+        const ANSWER_START = 'Sua resposta:';
+
+        const decorateReplyBubble = (bubble) => {
+          if (!bubble || bubble.dataset.replyDecorated === '1') return;
+
+          const textNode = Array.from(bubble.childNodes)
+            .find(node => node.nodeType === Node.TEXT_NODE);
+          if (!textNode) return;
+
+          const raw = textNode.textContent || '';
+          const first = raw.indexOf(REPLY_START);
+          const quoteStart = raw.indexOf(QUOTE_START);
+          const quoteEnd = raw.indexOf(QUOTE_END);
+          const answerStart = raw.indexOf(ANSWER_START);
+          if (first !== 0 || quoteStart < 0 || quoteEnd < quoteStart || answerStart < quoteEnd) return;
+
+          const header = raw.slice(REPLY_START.length, quoteStart).trim();
+          const quoted = raw.slice(quoteStart + QUOTE_START.length, quoteEnd).trim();
+          const answer = raw.slice(answerStart + ANSWER_START.length).trim();
+          if (!quoted) return;
+
+          const fragment = document.createDocumentFragment();
+
+          const replyHeader = document.createElement('div');
+          replyHeader.className = 'reply-header';
+          replyHeader.innerText = '↩ Resposta a ' + (header || 'mensagem');
+
+          const quote = document.createElement('div');
+          quote.className = 'reply-quote';
+
+          const quoteLabel = document.createElement('div');
+          quoteLabel.className = 'reply-quote-label';
+          quoteLabel.innerText = 'Mensagem citada';
+
+          const quoteText = document.createElement('div');
+          quoteText.className = 'reply-quote-text';
+          quoteText.innerText = quoted;
+
+          const answerLabel = document.createElement('div');
+          answerLabel.className = 'reply-answer-label';
+          answerLabel.innerText = 'Sua resposta';
+
+          const answerText = document.createElement('div');
+          answerText.className = 'reply-answer-text';
+          answerText.innerText = answer || ' ';
+
+          quote.appendChild(quoteLabel);
+          quote.appendChild(quoteText);
+          fragment.appendChild(replyHeader);
+          fragment.appendChild(quote);
+          fragment.appendChild(answerLabel);
+          fragment.appendChild(answerText);
+
+          textNode.replaceWith(fragment);
+          bubble.dataset.replyDecorated = '1';
+        };
+
+        const decorateMessageTimes = async () => {
+          if (!activeChat || !chatMessagesEl.querySelector('.message-bubble')) return;
+
+          let q;
+          if (activeChat.type === 'direct') {
+            const chatId = [currentUser, activeChat.id].sort().join("_");
+            const [sentSnap, receivedSnap] = await Promise.all([
+              getDocs(query(
+                collection(db, "messages"),
+                where("chatId", "==", chatId),
+                where("senderUid", "==", authenticatedUid)
+              )),
+              getDocs(query(
+                collection(db, "messages"),
+                where("chatId", "==", chatId),
+                where("receiverUid", "==", authenticatedUid)
+              ))
+            ]);
+            const merged = new Map();
+            sentSnap.forEach(d => merged.set(d.id, d.data()));
+            receivedSnap.forEach(d => merged.set(d.id, d.data()));
+            const msgs = [...merged.values()];
+            msgs.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+
+            const bubbles = Array.from(chatMessagesEl.querySelectorAll('.message-bubble'));
+            bubbles.forEach((bubble, index) => {
+              decorateReplyBubble(bubble);
+              const msg = msgs[index];
+              if (!msg || !msg.timestamp) return;
+              if (bubble.querySelector('.message-time')) return;
+              const time = document.createElement('span');
+              time.className = 'message-time';
+              time.innerText = formatMessageTime(msg.timestamp);
+              bubble.appendChild(time);
+            });
+            return;
+          } else {
+            q = query(
+              collection(db, "messages"),
+              where("groupId", "==", activeChat.id),
+              where("channelId", "==", activeChannel)
+            );
+          }
+
+          try {
+            const snapshot = await getDocs(q);
+            const msgs = [];
+            snapshot.forEach(docSnap => msgs.push(docSnap.data()));
+            msgs.sort((a, b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
+
+            const bubbles = Array.from(chatMessagesEl.querySelectorAll('.message-bubble'));
+            bubbles.forEach((bubble, index) => {
+              decorateReplyBubble(bubble);
+
+              const msg = msgs[index];
+              if (!msg || !msg.timestamp) return;
+              if (bubble.querySelector('.message-time')) return;
+
+              const time = document.createElement('span');
+              time.className = 'message-time';
+              time.innerText = formatMessageTime(msg.timestamp);
+              bubble.appendChild(time);
+            });
+          } catch (e) {
+            console.error('Erro ao carregar horários das mensagens:', e);
+          }
+        };
+
+        const observer = new MutationObserver(() => {
+          clearTimeout(observer._timer);
+          observer._timer = setTimeout(decorateMessageTimes, 80);
+        });
+        observer.observe(chatMessagesEl, { childList: true, subtree: true });
+
+        document.addEventListener('contextmenu', (event) => {
+          const bubble = event.target.closest?.('.message-bubble');
+          if (!bubble) return;
+
+          event.preventDefault();
+          event.stopImmediatePropagation();
+
+          const wrapper = bubble.closest('.message-wrapper');
+          const author = wrapper?.querySelector('.msg-author')?.innerText ||
+            (wrapper?.classList.contains('sent') ? currentUser : 'Mensagem');
+          const textNode = Array.from(bubble.childNodes)
+            .find(node => node.nodeType === Node.TEXT_NODE);
+          const text = (textNode?.textContent || '').trim();
+          if (!text) return;
+
+          replyTarget = { author, text };
+          replyMenu.style.left = `${Math.min(event.clientX, window.innerWidth - 170)}px`;
+          replyMenu.style.top = `${Math.min(event.clientY, window.innerHeight - 50)}px`;
+          replyMenu.style.display = 'block';
+        }, true);
+
+        replyMenu.querySelector('button').addEventListener('click', () => {
+          if (!replyTarget) return;
+
+          /* Formato legível e deliberadamente marcado para renderização separada. */
+          const quote = `${REPLY_START}${replyTarget.author}\n${QUOTE_START}\n${replyTarget.text}\n${QUOTE_END}\n${ANSWER_START}\n`;
+          const existing = messageInput.value.trim();
+          messageInput.value = existing ? `${existing}\n\n${quote}` : quote;
+          messageInput.focus();
+          messageInput.setSelectionRange(messageInput.value.length, messageInput.value.length);
+          hideReplyMenu();
+        });
+
+        document.addEventListener('mousedown', (event) => {
+          if (!replyMenu.contains(event.target)) hideReplyMenu();
+        }, true);
+
+        window.addEventListener('resize', hideReplyMenu);
+        window.addEventListener('scroll', hideReplyMenu, true);
+      })();
+    /* --- PROTEÇÃO DE INTERFACE / DISSUASÃO DE INSPEÇÃO --- */
+    (() => {
+      const stop = (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return false;
+      };
+
+      // Bloqueia atalhos comuns sem interferir no funcionamento normal do app.
+      document.addEventListener('contextmenu', stop, true);
+      document.addEventListener('dragstart', stop, true);
+      document.addEventListener('keydown', (event) => {
+        const key = String(event.key || '').toLowerCase();
+        const devtoolsShortcut =
+          event.key === 'F12' ||
+          (event.ctrlKey && event.shiftKey && ['i', 'j', 'c', 'k'].includes(key)) ||
+          (event.metaKey && event.altKey && ['i', 'j', 'c'].includes(key));
+        const sourceShortcut = (event.ctrlKey || event.metaKey) && key === 'u';
+        if (devtoolsShortcut || sourceShortcut) stop(event);
+      }, true);
+
+      // Dificulta cópia acidental do código/texto da interface, mas mantém inputs utilizáveis.
+      document.addEventListener('selectstart', (event) => {
+        const target = event.target;
+        if (target && ['INPUT', 'TEXTAREA'].includes(target.tagName)) return;
+        event.preventDefault();
+      }, true);
+
+      // Detecção heurística apenas quando há uma diferença muito grande de viewport.
+      // Não fecha a aplicação automaticamente: falsos positivos são comuns em docks/zoom.
+      let lastState = false;
+      const detectDevtools = () => {
+        const w = Math.abs(window.outerWidth - window.innerWidth);
+        const h = Math.abs(window.outerHeight - window.innerHeight);
+        const opened = w > 420 || h > 320;
+        if (opened && !lastState) {
+          document.documentElement.setAttribute('data-devtools-suspected', '1');
+        } else if (!opened && lastState) {
+          document.documentElement.removeAttribute('data-devtools-suspected');
+        }
+        lastState = opened;
+      };
+      setInterval(detectDevtools, 1200);
+    })();
+
+  </script>
+</body>
+</html>
+<!-- RESPONSIVE LAYER (ADITIVO: não substitui nem altera o código existente) -->
+<style id="clustercord-responsive-addition">
+  @media (max-width: 900px) {
+    #app-screen {
+      width: 100%;
+      height: 100dvh;
+      min-height: 0;
+    }
+
+    .sidebar {
+      width: clamp(260px, 34vw, 340px);
+      min-width: 0;
+    }
+
+    .chat-header {
+      padding-left: clamp(0.75rem, 2vw, 1.5rem);
+      padding-right: clamp(0.75rem, 2vw, 1.5rem);
+    }
+
+    .chat-messages {
+      padding: clamp(0.75rem, 2vw, 1.5rem);
+    }
+
+    .chat-input-area {
+      padding-left: clamp(0.75rem, 2vw, 1.5rem);
+      padding-right: clamp(0.75rem, 2vw, 1.5rem);
+    }
+
+    .message-wrapper {
+      max-width: min(85%, 720px);
+    }
+
+    .modal {
+      width: min(450px, calc(100vw - 2rem));
+      max-height: calc(100dvh - 2rem);
+      overflow-y: auto;
+    }
+  }
+
+  @media (max-width: 700px) {
+    body {
+      height: 100dvh;
+      min-height: 100dvh;
+      overflow: hidden;
+    }
+
+    #login-screen {
+      padding: 1rem;
+    }
+
+    .login-card {
+      width: min(100%, 420px);
+      max-width: calc(100vw - 2rem);
+      padding: clamp(1.25rem, 6vw, 2.5rem);
+    }
+
+    #app-screen {
+      position: relative;
+      width: 100%;
+      height: 100dvh;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    #app-screen .sidebar,
+    #app-screen .chat-area {
+      width: 100%;
+      min-width: 0;
+      max-width: none;
+    }
+
+    #app-screen .sidebar {
+      display: flex;
+      height: 100%;
+      flex: 1 1 100%;
+      border-right: 0;
+    }
+
+    #app-screen .chat-area {
+      display: none;
+      height: 100%;
+      flex: 1 1 100%;
+    }
+
+    #app-screen.mobile-chat-open .sidebar {
+      display: none;
+    }
+
+    #app-screen.mobile-chat-open .chat-area {
+      display: flex;
+    }
+
+    .sidebar-header {
+      padding: 0.8rem;
+    }
+
+    .actions-bar {
+      padding: 0.7rem;
+    }
+
+    .search-box {
+      min-width: 0;
+    }
+
+    .search-box input {
+      min-width: 0;
+    }
+
+    .contact-list {
+      min-height: 0;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .contact-item {
+      min-height: 54px;
+      padding: 0.65rem 0.7rem;
+    }
+
+    .chat-header {
+      min-height: 58px;
+      padding: 0.65rem 0.75rem;
+      gap: 0.5rem;
+    }
+
+    .chat-header-info {
+      min-width: 0;
+      flex: 1;
+      gap: 0.65rem;
+    }
+
+    .chat-header-info > div:last-child {
+      min-width: 0;
+    }
+
+    #active-chat-name,
+    #active-chat-sub {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #header-actions {
+      max-width: 48%;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+      overflow: auto;
+    }
+
+    #header-actions .btn-small {
+      max-width: 100%;
+      white-space: nowrap;
+      font-size: 0.72rem;
+      padding: 0.5rem 0.6rem;
+    }
+
+    .channels-bar {
+      padding: 0.45rem 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .chat-messages {
+      min-height: 0;
+      padding: 0.8rem;
+      gap: 0.7rem;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .message-wrapper {
+      max-width: 90%;
+      gap: 0.55rem;
+    }
+
+    .msg-avatar {
+      width: 32px;
+      height: 32px;
+    }
+
+    .message-bubble {
+      padding: 0.7rem 0.8rem;
+      font-size: 0.9rem;
+    }
+
+    .chat-input-area {
+      padding: 0.65rem;
+      padding-bottom: max(0.65rem, env(safe-area-inset-bottom));
+      gap: 0.5rem;
+      flex-shrink: 0;
+    }
+
+    .chat-input-area input {
+      min-width: 0;
+      font-size: 16px;
+    }
+
+    .voice-controls {
+      padding: 0 0.65rem max(0.65rem, env(safe-area-inset-bottom));
+    }
+
+    .voice-panel {
+      padding: 1rem;
+    }
+
+    .voice-panel-card {
+      padding: 1rem;
+    }
+
+    .modal-overlay {
+      padding: max(0.75rem, env(safe-area-inset-top))
+               max(0.75rem, env(safe-area-inset-right))
+               max(0.75rem, env(safe-area-inset-bottom))
+               max(0.75rem, env(safe-area-inset-left));
+    }
+
+    .modal {
+      max-height: calc(100dvh - 1.5rem);
+      padding: 1.25rem;
+    }
+
+    #message-context-menu {
+      max-width: calc(100vw - 1rem);
+    }
+
+    #message-context-menu button {
+      min-height: 42px;
+    }
+
+    #clustercord-mobile-back {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      border-radius: 8px;
+      background: var(--bg-input);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+  }
+
+  @media (min-width: 701px) {
+    #clustercord-mobile-back {
+      display: none !important;
+    }
+  }
+
+  @media (max-width: 380px) {
+    .sidebar-header .user-bio {
+      display: none;
+    }
+
+    .sidebar-header {
+      gap: 0.4rem;
+    }
+
+    .sidebar-header .btn-small {
+      padding-left: 0.65rem;
+      padding-right: 0.65rem;
+    }
+
+    .message-wrapper {
+      max-width: 94%;
+    }
+
+    #header-actions {
+      max-width: 42%;
+    }
+  }
+</style>
+
+<script>
+(() => {
+  'use strict';
+
+  /*
+   * CAMADA RESPONSIVA ADITIVA.
+   * Não substitui funções, listeners, dados, Firebase ou controles de segurança existentes.
+   * No celular, a lista de conversas ocupa a tela até uma conversa ser aberta.
+   */
+
+  const app = document.getElementById('app-screen');
+  const chatArea = app?.querySelector('.chat-area');
+  const chatHeader = app?.querySelector('.chat-header');
+
+  if (!app || !chatArea || !chatHeader) return;
+
+  const MOBILE_QUERY = window.matchMedia('(max-width: 700px)');
+
+  const backButton = document.createElement('button');
+  backButton.id = 'clustercord-mobile-back';
+  backButton.type = 'button';
+  backButton.setAttribute('aria-label', 'Voltar para a lista de conversas');
+  backButton.title = 'Voltar';
+  backButton.innerText = '←';
+
+  const headerInfo = chatHeader.querySelector('.chat-header-info');
+  if (headerInfo) {
+    chatHeader.insertBefore(backButton, headerInfo);
+  } else {
+    chatHeader.insertBefore(backButton, chatHeader.firstChild);
+  }
+
+  const isConversationSelected = () => {
+    const name = document.getElementById('active-chat-name')?.innerText?.trim();
+    return !!name && name !== 'Selecione uma conversa';
+  };
+
+  const syncMobileLayout = () => {
+    if (!MOBILE_QUERY.matches) {
+      app.classList.remove('mobile-chat-open');
+      return;
+    }
+
+    if (isConversationSelected()) {
+      app.classList.add('mobile-chat-open');
+    } else {
+      app.classList.remove('mobile-chat-open');
+    }
+  };
+
+  /*
+   * O retorno é propositalmente visual: ele fecha a área de chat no celular
+   * sem tocar nos dados, listeners, Firestore ou no mecanismo de autenticação.
+   * A próxima conversa aberta volta a usar o fluxo original do aplicativo.
+   */
+  backButton.addEventListener('click', () => {
+    if (!MOBILE_QUERY.matches) return;
+    app.classList.remove('mobile-chat-open');
+    document.getElementById('active-chat-name')?.focus?.({ preventScroll: true });
+  });
+
+  /*
+   * Observa somente mudanças visuais do cabeçalho para acompanhar o fluxo original.
+   * Isso evita substituir selectDirectChat/selectGroupChat e mantém o código existente intacto.
+   */
+  const headerObserver = new MutationObserver(() => {
+    if (MOBILE_QUERY.matches) {
+      syncMobileLayout();
+    }
+  });
+
+  const activeName = document.getElementById('active-chat-name');
+  const activeSub = document.getElementById('active-chat-sub');
+
+  if (activeName) headerObserver.observe(activeName, {
+    childList: true,
+    characterData: true,
+    subtree: true
+  });
+
+  if (activeSub) headerObserver.observe(activeSub, {
+    childList: true,
+    characterData: true,
+    subtree: true
+  });
+
+  /*
+   * Também acompanha cliques nos contatos. O listener é apenas adicional
+   * e não impede o onclick original de executar.
+   */
+  document.addEventListener('click', (event) => {
+    const item = event.target.closest?.('.contact-item');
+    if (!item || !app.contains(item)) return;
+
+    if (MOBILE_QUERY.matches) {
+      window.setTimeout(syncMobileLayout, 0);
+      window.setTimeout(syncMobileLayout, 80);
+      window.setTimeout(syncMobileLayout, 250);
+    }
+  }, false);
+
+  const handleViewportChange = () => {
+    if (!MOBILE_QUERY.matches) {
+      app.classList.remove('mobile-chat-open');
+    } else {
+      syncMobileLayout();
+    }
+  };
+
+  if (typeof MOBILE_QUERY.addEventListener === 'function') {
+    MOBILE_QUERY.addEventListener('change', handleViewportChange);
+  } else if (typeof MOBILE_QUERY.addListener === 'function') {
+    MOBILE_QUERY.addListener(handleViewportChange);
+  }
+
+  window.addEventListener('resize', handleViewportChange, false);
+  window.addEventListener('orientationchange', handleViewportChange, false);
+
+  /*
+   * Corrige somente a área visível após o retorno: não apaga mensagens,
+   * não altera activeChat e não toca em Firebase.
+   */
+  syncMobileLayout();
+})();
+</script>
