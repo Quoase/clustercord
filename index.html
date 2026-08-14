@@ -782,6 +782,7 @@
       <div class="chat-messages" id="chat-messages"></div>
 
       <div class="chat-input-area">
+        <button type="button" id="chat-gif-plus" class="chat-gif-plus" title="Enviar GIF" aria-label="Abrir seletor de GIFs">+</button>
         <input type="text" id="message-input" placeholder="Digite sua mensagem...">
         <button class="btn-small" id="btn-send">Enviar</button>
       </div>
@@ -1860,6 +1861,49 @@
       }
     }
 
+
+    function isAllowedGifUrl(value) {
+      try {
+        const url = new URL(String(value || '').trim());
+        if (url.protocol !== 'https:') return false;
+
+        const host = url.hostname.toLowerCase();
+        const allowedHosts = [
+          'media.tenor.com',
+          'c.tenor.com',
+          'media.giphy.com',
+          'i.giphy.com',
+          'media0.giphy.com',
+          'media1.giphy.com',
+          'media2.giphy.com',
+          'media3.giphy.com',
+          'media4.giphy.com',
+          'media5.giphy.com',
+          'media6.giphy.com',
+          'media7.giphy.com',
+          'media8.giphy.com',
+          'media9.giphy.com',
+          'media.klipy.com',
+          'static.klipy.com',
+          'klipy.com'
+        ];
+
+        const hostAllowed = allowedHosts.some(
+          allowed => host === allowed || host.endsWith('.' + allowed)
+        );
+        const pathLooksGif = /\.gif(?:$|[?#])/i.test(url.pathname + url.search);
+
+        return hostAllowed && (
+          pathLooksGif ||
+          host.includes('tenor.com') ||
+          host.includes('giphy.com') ||
+          host.includes('klipy.com')
+        );
+      } catch {
+        return false;
+      }
+    }
+
     async function sendMessage() {
       const text = messageInput.value.trim();
       if (!text || !activeChat) return;
@@ -2086,7 +2130,25 @@
 
           const bubble = document.createElement('div');
           bubble.className = 'message-bubble';
-          bubble.innerText = msg.text;
+          const storedMessageText = String(msg.text || '');
+          const messageIsGif = isAllowedGifUrl(storedMessageText);
+          bubble.dataset.messageText = messageIsGif ? '[GIF]' : storedMessageText;
+
+          if (messageIsGif) {
+            const gif = document.createElement('img');
+            gif.className = 'message-gif';
+            gif.src = storedMessageText;
+            gif.alt = 'GIF';
+            gif.loading = 'lazy';
+            gif.decoding = 'async';
+            gif.referrerPolicy = 'no-referrer';
+            gif.addEventListener('error', () => {
+              gif.replaceWith(document.createTextNode('GIF indisponível'));
+            });
+            bubble.appendChild(gif);
+          } else {
+            bubble.appendChild(document.createTextNode(String(msg.text || '')));
+          }
 
           if (activeChat.type === 'group' && activeChat.data.owner === currentUser) {
             const btnDel = document.createElement('button');
@@ -2581,7 +2643,7 @@
             (wrapper?.classList.contains('sent') ? currentUser : 'Mensagem');
           const textNode = Array.from(bubble.childNodes)
             .find(node => node.nodeType === Node.TEXT_NODE);
-          const text = (textNode?.textContent || '').trim();
+          const text = (bubble.dataset.messageText || textNode?.textContent || '').trim();
           if (!text) return;
 
           replyTarget = { author, text };
@@ -3060,4 +3122,760 @@
    */
   syncMobileLayout();
 })();
+
+    /* ================================================================
+       GIF PICKER
+       - Não altera o modelo do Firebase: somente a URL do GIF vai para text.
+       - Pesquisa real usando KLIPY, substituto atual da API do Tenor.
+       - O botão do chat usa diretamente #message-input.
+       - Nos demais campos de texto, o botão continua adaptável.
+       ================================================================ */
+    (() => {
+      const KLIPY_API_KEY = window.CLUSTERCORD_KLIPY_API_KEY || 'bYbqVWKJACYPeCFul3j7JTqKVVngANsn9vA62DPb1DcqdrVNv4oo5dc1ZoypHxnM';
+      const KLIPY_CLIENT_KEY = 'clustercord';
+      const GIF_SEARCH_LIMIT = 18;
+
+      const GIF_ALLOWED_HOSTS = [
+        'media.klipy.com',
+        'static.klipy.com',
+        'media.tenor.com',
+        'c.tenor.com',
+        'media.giphy.com',
+        'i.giphy.com',
+        'media0.giphy.com',
+        'media1.giphy.com',
+        'media2.giphy.com',
+        'media3.giphy.com',
+        'media4.giphy.com',
+        'media5.giphy.com',
+        'media6.giphy.com',
+        'media7.giphy.com',
+        'media8.giphy.com',
+        'media9.giphy.com'
+      ];
+
+      const messageInputEl = document.getElementById('message-input');
+      const chatGifPlus = document.getElementById('chat-gif-plus');
+
+      let gifTargetInput = null;
+      let gifSearchTimer = null;
+      let gifRequestId = 0;
+
+      const gifStyle = document.createElement('style');
+      gifStyle.textContent = `
+        .chat-gif-plus {
+          flex: 0 0 38px;
+          width: 38px;
+          height: 38px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border: 1px solid var(--border-color);
+          border-radius: 8px;
+          background: var(--bg-input);
+          color: var(--text-main);
+          cursor: pointer;
+          font: 700 22px/1 Inter, sans-serif;
+          padding: 0;
+          transition: .15s;
+        }
+        .chat-gif-plus:hover,
+        .chat-gif-plus:focus-visible {
+          background: var(--bg-panel);
+          border-color: var(--accent-blue);
+          color: var(--accent-blue);
+          outline: none;
+        }
+        #universal-gif-plus {
+          position: fixed;
+          z-index: 1200;
+          width: 30px;
+          height: 30px;
+          display: none;
+          align-items: center;
+          justify-content: center;
+          border: 1px solid var(--border-color);
+          border-radius: 7px;
+          background: var(--bg-panel);
+          color: var(--text-main);
+          box-shadow: 0 5px 18px rgba(0,0,0,.35);
+          cursor: pointer;
+          font: 700 19px/1 Inter, sans-serif;
+          padding: 0;
+        }
+        #universal-gif-plus:hover,
+        #universal-gif-plus:focus-visible {
+          background: var(--bg-input);
+          border-color: var(--accent-blue);
+          color: var(--accent-blue);
+          outline: none;
+        }
+        #universal-gif-picker {
+          position: fixed;
+          z-index: 1199;
+          width: min(430px, calc(100vw - 20px));
+          height: min(560px, calc(100dvh - 20px));
+          max-height: calc(100dvh - 20px);
+          display: none;
+          flex-direction: column;
+          overflow: hidden;
+          background: var(--bg-panel);
+          border: 1px solid var(--border-color);
+          border-radius: 12px;
+          box-shadow: 0 18px 55px rgba(0,0,0,.65);
+        }
+        #universal-gif-picker .gif-picker-head {
+          display: flex;
+          align-items: center;
+          gap: .5rem;
+          padding: .7rem;
+          border-bottom: 1px solid var(--border-color);
+          flex: 0 0 auto;
+        }
+        #universal-gif-picker .gif-picker-search {
+          flex: 1;
+          min-width: 0;
+          padding: .65rem .75rem;
+          background: var(--bg-input);
+          border: 1px solid var(--border-color);
+          border-radius: 7px;
+          color: var(--text-main);
+          outline: none;
+          font-size: 16px;
+        }
+        #universal-gif-picker .gif-picker-search:focus {
+          border-color: var(--accent-blue);
+        }
+        #universal-gif-picker .gif-picker-close {
+          width: 34px;
+          height: 34px;
+          flex: 0 0 34px;
+          border: 1px solid var(--border-color);
+          border-radius: 7px;
+          background: var(--bg-input);
+          color: var(--text-muted);
+          cursor: pointer;
+        }
+        #universal-gif-picker .gif-picker-direct {
+          display: flex;
+          gap: .45rem;
+          padding: .65rem .7rem 0;
+          flex: 0 0 auto;
+        }
+        #universal-gif-picker .gif-picker-direct input {
+          flex: 1;
+          min-width: 0;
+          padding: .55rem .65rem;
+          background: var(--bg-input);
+          border: 1px solid var(--border-color);
+          border-radius: 7px;
+          color: var(--text-main);
+          outline: none;
+          font-size: 16px;
+        }
+        #universal-gif-picker .gif-picker-direct button {
+          padding: .55rem .7rem;
+          border: 0;
+          border-radius: 7px;
+          background: var(--accent-blue);
+          color: #000;
+          font-weight: 700;
+          cursor: pointer;
+        }
+        #universal-gif-picker .gif-picker-status {
+          padding: .55rem .75rem;
+          color: var(--text-muted);
+          font-size: .72rem;
+          min-height: 30px;
+          flex: 0 0 auto;
+        }
+        #universal-gif-picker .gif-picker-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 7px;
+          padding: .7rem;
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          flex: 1 1 auto;
+          min-height: 0;
+        }
+        #universal-gif-picker .gif-result {
+          position: relative;
+          aspect-ratio: 1 / 1;
+          overflow: hidden;
+          border: 1px solid var(--border-color);
+          border-radius: 7px;
+          background: var(--bg-input);
+          cursor: pointer;
+          padding: 0;
+        }
+        #universal-gif-picker .gif-result img {
+          width: 100%;
+          height: 100%;
+          display: block;
+          object-fit: cover;
+        }
+        #universal-gif-picker .gif-result:hover,
+        #universal-gif-picker .gif-result:focus-visible {
+          border-color: var(--accent-blue);
+          outline: none;
+        }
+        #universal-gif-picker .gif-attribution {
+          padding: .45rem .7rem .65rem;
+          color: var(--text-muted);
+          font-size: .65rem;
+          text-align: center;
+          flex: 0 0 auto;
+        }
+        .message-gif {
+          display: block;
+          width: min(320px, 100%);
+          max-width: 100%;
+          max-height: 360px;
+          object-fit: contain;
+          border-radius: 8px;
+        }
+        .message-bubble:has(.message-gif) { padding: .35rem; }
+
+        @media (max-width: 700px) {
+          .chat-gif-plus {
+            flex-basis: 36px;
+            width: 36px;
+            height: 36px;
+          }
+          #universal-gif-picker {
+            width: calc(100vw - 16px);
+            height: min(72dvh, 560px);
+            max-height: calc(100dvh - 16px);
+            left: 8px !important;
+            right: 8px;
+            border-radius: 10px;
+          }
+          #universal-gif-picker .gif-picker-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 6px;
+          }
+          .message-gif {
+            width: min(260px, 100%);
+            max-height: 300px;
+          }
+        }
+      `;
+      document.head.appendChild(gifStyle);
+
+      const plusButton = document.createElement('button');
+      plusButton.id = 'universal-gif-plus';
+      plusButton.type = 'button';
+      plusButton.title = 'Enviar GIF';
+      plusButton.setAttribute('aria-label', 'Abrir seletor de GIFs');
+      plusButton.setAttribute('aria-expanded', 'false');
+      plusButton.textContent = '+';
+      document.body.appendChild(plusButton);
+
+      const picker = document.createElement('div');
+      picker.id = 'universal-gif-picker';
+      picker.setAttribute('role', 'dialog');
+      picker.setAttribute('aria-label', 'Seletor de GIFs');
+      picker.innerHTML = `
+        <div class="gif-picker-head">
+          <input class="gif-picker-search" type="search"
+                 placeholder="Pesquisar GIFs..." autocomplete="off"
+                 enterkeyhint="search">
+          <button class="gif-picker-close" type="button" aria-label="Fechar">✕</button>
+        </div>
+        <div class="gif-picker-direct">
+          <input type="url" class="gif-picker-url"
+                 placeholder="Cole uma URL de GIF HTTPS">
+          <button type="button" class="gif-picker-use-url">Usar URL</button>
+        </div>
+        <div class="gif-picker-status">
+          Digite uma pesquisa para buscar GIFs reais.
+        </div>
+        <div class="gif-picker-grid"></div>
+        <div class="gif-attribution">
+          Resultados pesquisados no KLIPY. O Clustercord salva somente a URL selecionada.
+        </div>
+      `;
+      document.body.appendChild(picker);
+
+      const pickerSearch = picker.querySelector('.gif-picker-search');
+      const pickerUrl = picker.querySelector('.gif-picker-url');
+      const pickerGrid = picker.querySelector('.gif-picker-grid');
+      const pickerStatus = picker.querySelector('.gif-picker-status');
+
+      const isTextField = (el) => {
+        if (!el || el.disabled || el.readOnly) return false;
+        if (el.tagName === 'TEXTAREA') return true;
+        if (el.tagName !== 'INPUT') return false;
+        const type = (el.type || 'text').toLowerCase();
+        return ['text', 'search', 'url', ''].includes(type);
+      };
+
+      const isAllowedGifUrl = (value) => {
+        try {
+          const url = new URL(String(value || '').trim());
+          if (url.protocol !== 'https:') return false;
+
+          const host = url.hostname.toLowerCase();
+          const allowedHost = GIF_ALLOWED_HOSTS.some(
+            allowed => host === allowed || host.endsWith('.' + allowed)
+          );
+
+          const looksGif = /\.gif(?:$|[?#])/i.test(url.pathname + url.search);
+          const knownGifCdn = (
+            host.endsWith('.klipy.com') ||
+            host.endsWith('.tenor.com') ||
+            host.endsWith('.giphy.com')
+          );
+
+          return allowedHost && (looksGif || knownGifCdn);
+        } catch {
+          return false;
+        }
+      };
+
+      const positionPlusButton = (input) => {
+        if (!isTextField(input) || input === messageInputEl) {
+          plusButton.style.display = 'none';
+          return;
+        }
+
+        const rect = input.getBoundingClientRect();
+
+        if (
+          rect.width < 90 ||
+          rect.height < 24 ||
+          rect.bottom < 0 ||
+          rect.top > window.innerHeight
+        ) {
+          plusButton.style.display = 'none';
+          return;
+        }
+
+        const size = 30;
+        const left = Math.max(4, rect.left - size - 6);
+        const top = Math.max(
+          4,
+          Math.min(
+            window.innerHeight - size - 4,
+            rect.top + (rect.height - size) / 2
+          )
+        );
+
+        plusButton.style.left = `${left}px`;
+        plusButton.style.top = `${top}px`;
+        plusButton.style.display = 'flex';
+      };
+
+      const refreshPlusButton = () => {
+        positionPlusButton(gifTargetInput || document.activeElement);
+      };
+
+      const closePicker = () => {
+        picker.style.display = 'none';
+        if (chatGifPlus) {
+          chatGifPlus.setAttribute('aria-expanded', 'false');
+        }
+        plusButton.setAttribute('aria-expanded', 'false');
+      };
+
+      const insertIntoTarget = (url) => {
+        if (!gifTargetInput || !isTextField(gifTargetInput)) return false;
+
+        const cleanUrl = String(url || '').trim();
+
+        if (!isAllowedGifUrl(cleanUrl)) {
+          pickerStatus.textContent =
+            'URL inválida. Use uma URL HTTPS de GIF do KLIPY, Tenor ou GIPHY.';
+          return false;
+        }
+
+        const input = gifTargetInput;
+        const start =
+          typeof input.selectionStart === 'number'
+            ? input.selectionStart
+            : input.value.length;
+        const end =
+          typeof input.selectionEnd === 'number'
+            ? input.selectionEnd
+            : input.value.length;
+
+        const value = input.value || '';
+
+        input.focus();
+        input.value =
+          value.slice(0, start) +
+          cleanUrl +
+          value.slice(end);
+
+        const caret = start + cleanUrl.length;
+
+        if (typeof input.setSelectionRange === 'function') {
+          input.setSelectionRange(caret, caret);
+        }
+
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        closePicker();
+        return true;
+      };
+
+      const placePicker = () => {
+        const input = gifTargetInput;
+        if (!input) return;
+
+        const rect = input.getBoundingClientRect();
+        const width = Math.min(430, window.innerWidth - 20);
+        const height = Math.min(560, window.innerHeight - 20);
+
+        let left = rect.left;
+        let top = rect.top - height - 8;
+
+        left = Math.max(
+          8,
+          Math.min(left, window.innerWidth - width - 8)
+        );
+
+        if (top < 8) {
+          top = Math.min(
+            rect.bottom + 8,
+            window.innerHeight - height - 8
+          );
+        }
+
+        top = Math.max(8, top);
+
+        picker.style.width = `${width}px`;
+        picker.style.height = `${height}px`;
+        picker.style.left = `${left}px`;
+        picker.style.top = `${top}px`;
+      };
+
+      const showPicker = (input) => {
+        if (!isTextField(input)) return;
+
+        gifTargetInput = input;
+        positionPlusButton(input);
+
+        picker.style.display = 'flex';
+        if (chatGifPlus) {
+          chatGifPlus.setAttribute('aria-expanded', 'true');
+        }
+        plusButton.setAttribute('aria-expanded', 'true');
+
+        pickerSearch.value = '';
+        pickerUrl.value = '';
+        pickerGrid.innerHTML = '';
+
+        if (!KLIPY_API_KEY.trim()) {
+          pickerStatus.textContent =
+            'A pesquisa precisa de uma chave KLIPY. Cole sua chave em CLUSTERCORD_KLIPY_API_KEY no código.';
+        } else {
+          pickerStatus.textContent = 'Carregando GIFs em destaque...';
+        }
+
+        placePicker();
+
+        if (KLIPY_API_KEY.trim()) {
+          loadGifs('');
+        }
+
+        setTimeout(() => pickerSearch.focus(), 0);
+      };
+
+      const getKlipyUrl = (queryText) => {
+        const params = new URLSearchParams({
+          q: queryText || 'trending reactions',
+          key: KLIPY_API_KEY,
+          limit: String(GIF_SEARCH_LIMIT),
+          contentfilter: 'high',
+          media_filter: 'gif,tinygif,mediumgif,nanogif,preview',
+          locale: 'pt_BR'
+        });
+
+        return `https://api.klipy.com/v2/search?${params.toString()}`;
+      };
+
+      const getNested = (object, paths) => {
+        for (const path of paths) {
+          let current = object;
+          for (const key of path) {
+            current = current?.[key];
+          }
+          if (current) return current;
+        }
+        return null;
+      };
+
+      const extractKlipyResults = (data) => {
+        const items =
+          Array.isArray(data?.results)
+            ? data.results
+            : Array.isArray(data?.data?.data)
+              ? data.data.data
+              : [];
+
+        return items.map((item, index) => {
+          const formats = item?.media_formats || {};
+
+          const preview =
+            formats.tinygif?.url ||
+            formats.nanogif?.url ||
+            formats.preview?.url ||
+            getNested(item, [
+              ['file', 'sm', 'gif', 'url'],
+              ['file', 'sm', 'webp', 'url'],
+              ['file', 'xs', 'gif', 'url'],
+              ['file', 'xs', 'webp', 'url']
+            ]);
+
+          const full =
+            formats.gif?.url ||
+            formats.mediumgif?.url ||
+            formats.largegif?.url ||
+            getNested(item, [
+              ['file', 'md', 'gif', 'url'],
+              ['file', 'hd', 'gif', 'url'],
+              ['file', 'sm', 'gif', 'url']
+            ]);
+
+          return {
+            id: item?.id || item?.slug || `gif-${index}`,
+            preview,
+            full
+          };
+        }).filter(
+          item =>
+            item.preview &&
+            item.full &&
+            isAllowedGifUrl(item.full)
+        );
+      };
+
+      const renderGifResults = (results) => {
+        pickerGrid.innerHTML = '';
+
+        if (!results.length) {
+          pickerStatus.textContent =
+            'A pesquisa real retornou 0 GIFs.';
+          return;
+        }
+
+        pickerStatus.textContent =
+          `${results.length} GIFs encontrados. Clique em um para inserir.`;
+
+        results.forEach(result => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'gif-result';
+          button.title = 'Inserir este GIF';
+          button.setAttribute('aria-label', 'Inserir este GIF');
+
+          const img = document.createElement('img');
+          img.src = result.preview;
+          img.alt = 'GIF';
+          img.loading = 'lazy';
+          img.decoding = 'async';
+          img.referrerPolicy = 'no-referrer';
+
+          img.addEventListener('error', () => {
+            button.remove();
+          });
+
+          button.appendChild(img);
+
+          button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+
+            // O campo de pesquisa do seletor também é um <input>.
+            // Portanto, o focusin abaixo não pode substituir o destino
+            // original do GIF enquanto o usuário pesquisa.
+            const targetWasMessageInput = gifTargetInput === messageInputEl;
+            const inserted = insertIntoTarget(result.full);
+
+            if (inserted && targetWasMessageInput) {
+              // Usa o botão de envio REAL do chat. Assim o GIF percorre
+              // exatamente o mesmo sendMessage() usado por uma mensagem normal.
+              const realSendButton = document.getElementById('btn-send');
+              if (realSendButton) realSendButton.click();
+            }
+          });
+
+          pickerGrid.appendChild(button);
+        });
+      };
+
+      async function loadGifs(queryText) {
+        const requestId = ++gifRequestId;
+        const q = String(queryText || '').trim();
+
+        if (!KLIPY_API_KEY.trim()) {
+          pickerStatus.textContent =
+            'Configure sua chave KLIPY para ativar a pesquisa real.';
+          return;
+        }
+
+        pickerStatus.textContent = q
+          ? `Pesquisando "${q}"...`
+          : 'Carregando GIFs em destaque...';
+
+        pickerGrid.innerHTML = '';
+
+        try {
+          const response = await fetch(getKlipyUrl(q), {
+            method: 'GET',
+            headers: { Accept: 'application/json' },
+            mode: 'cors',
+            cache: 'no-store'
+          });
+
+          const raw = await response.text();
+
+          if (!response.ok) {
+            throw new Error(
+              `KLIPY HTTP ${response.status}: ${raw.slice(0, 220)}`
+            );
+          }
+
+          let data;
+
+          try {
+            data = JSON.parse(raw);
+          } catch {
+            throw new Error('A resposta da KLIPY não é JSON.');
+          }
+
+          if (requestId !== gifRequestId) return;
+
+          renderGifResults(extractKlipyResults(data));
+        } catch (error) {
+          if (requestId !== gifRequestId) return;
+
+          console.error('Erro real na busca de GIFs:', error);
+
+          pickerStatus.textContent =
+            'Não foi possível pesquisar agora. Confira sua chave KLIPY e o console do navegador.';
+        }
+      }
+
+      const openForChat = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (!messageInputEl) {
+          console.error('Clustercord GIF: #message-input não encontrado.');
+          return;
+        }
+
+        gifTargetInput = messageInputEl;
+        showPicker(messageInputEl);
+      };
+
+      if (chatGifPlus) {
+        chatGifPlus.addEventListener('click', openForChat);
+      }
+
+      plusButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const target =
+          gifTargetInput && document.contains(gifTargetInput)
+            ? gifTargetInput
+            : document.activeElement;
+
+        if (isTextField(target)) {
+          showPicker(target);
+        }
+      });
+
+      picker.querySelector('.gif-picker-close')
+        .addEventListener('click', closePicker);
+
+      picker.querySelector('.gif-picker-use-url')
+        .addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          insertIntoTarget(pickerUrl.value);
+        });
+
+      pickerUrl.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          picker.querySelector('.gif-picker-use-url').click();
+        }
+      });
+
+      pickerSearch.addEventListener('input', () => {
+        clearTimeout(gifSearchTimer);
+
+        const q = pickerSearch.value.trim();
+
+        gifSearchTimer = setTimeout(
+          () => loadGifs(q),
+          q ? 350 : 0
+        );
+      });
+
+      document.addEventListener('focusin', event => {
+        // Não troque o destino para os próprios campos do seletor de GIF.
+        // O destino precisa continuar sendo message-input enquanto a busca é feita.
+        if (picker.contains(event.target)) return;
+
+        if (isTextField(event.target)) {
+          gifTargetInput = event.target;
+          positionPlusButton(event.target);
+        }
+      }, true);
+
+      document.addEventListener('click', event => {
+        if (
+          event.target === plusButton ||
+          event.target === chatGifPlus ||
+          picker.contains(event.target)
+        ) {
+          return;
+        }
+
+        if (isTextField(event.target)) {
+          gifTargetInput = event.target;
+          positionPlusButton(event.target);
+          return;
+        }
+
+        closePicker();
+      }, true);
+
+      window.addEventListener('resize', () => {
+        refreshPlusButton();
+        if (picker.style.display !== 'none') {
+          placePicker();
+        }
+      });
+
+      window.addEventListener('scroll', () => {
+        refreshPlusButton();
+        if (picker.style.display !== 'none') {
+          placePicker();
+        }
+      }, true);
+
+      document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') closePicker();
+      });
+
+      const inputObserver = new MutationObserver(() => {
+        if (gifTargetInput && !document.contains(gifTargetInput)) {
+          gifTargetInput = null;
+          plusButton.style.display = 'none';
+          closePicker();
+        }
+      });
+
+      inputObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+    })();
+
 </script>
