@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <!--Update V2.8_gif_update-->
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Clustercord!</title>
@@ -761,11 +760,53 @@
           <input type="text" id="target-nickname" placeholder="Puxar usuário por Nick...">
           <button class="btn-small" id="btn-puxar">Puxar</button>
         </div>
+        <button type="button" class="clusterstore-sidebar-button" id="btn-clusterstore">
+          <span class="clusterstore-sidebar-icon">◈</span>
+          <span>Clusterstore</span>
+          <span class="clusterstore-sidebar-arrow">›</span>
+        </button>
         <button class="btn-small btn-secondary" id="btn-create-group-modal">+ Criar Novo Grupo</button>
       </div>
 
       <div class="contact-list" id="contact-list"></div>
     </div>
+
+    <section id="clusterstore-view" class="clusterstore-view hidden" aria-label="Clusterstore">
+      <div class="clusterstore-header">
+        <button type="button" id="clusterstore-back" class="clusterstore-back" aria-label="Voltar">←</button>
+        <div class="clusterstore-title-wrap">
+          <div class="clusterstore-kicker">CLUSTERCORD</div>
+          <h1>Clusterstore</h1>
+        </div>
+        <div class="clusterstore-header-spacer" aria-hidden="true"></div>
+      </div>
+
+      <div class="clusterstore-content">
+        <div class="clusterstore-hero">
+          <div class="clusterstore-coin" aria-hidden="true">
+            <span>CC</span>
+          </div>
+          <div class="clusterstore-balance-label">SEU SALDO</div>
+          <div id="clusterstore-balance" class="clusterstore-balance">0.0</div>
+          <div class="clusterstore-currency">Clustercoins</div>
+          <div class="clusterstore-rule">+0.5 por mensagem • limite de 1 minuto</div>
+        </div>
+
+        <div class="clusterstore-items">
+          <div class="clusterstore-items-title">
+            <span>Itens da loja</span>
+            <span class="clusterstore-items-line"></span>
+          </div>
+          <div class="clusterstore-coming-soon">
+            <div class="clusterstore-coming-icon">✦</div>
+            <div>
+              <div class="clusterstore-coming-title">Itens Em Breve</div>
+              <div class="clusterstore-coming-sub">Novos itens poderão ser adquiridos com suas Clustercoins.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <div class="chat-area">
       <div class="chat-header">
@@ -888,7 +929,7 @@
     import { 
       getFirestore, doc, setDoc, getDoc, updateDoc, collection, addDoc, 
       query, where, onSnapshot, serverTimestamp, arrayUnion, arrayRemove, increment, 
-      getDocs, deleteDoc 
+      getDocs, deleteDoc, runTransaction 
     } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
     // CREDENCIAIS REAIS DO FIREBASE
@@ -1118,7 +1159,9 @@
             contacts: [],
             blockedUsers: [],
             pulledUsers: [],
-            unreadCounts: {}
+            unreadCounts: {},
+            clustercoins: 0,
+            lastClustercoinAt: null
           });
 
           localStorage.setItem('clustercord_user', nick);
@@ -1145,7 +1188,9 @@
             contacts: [],
             blockedUsers: [],
             pulledUsers: [],
-            unreadCounts: {}
+            unreadCounts: {},
+            clustercoins: 0,
+            lastClustercoinAt: null
           });
         } else {
           const data = userSnap.data();
@@ -1215,6 +1260,8 @@
       onSnapshot(doc(db, "users", currentUser), (docSnap) => {
         if (docSnap.exists()) {
           userProfile = docSnap.data();
+          window.__clustercordUserProfile = userProfile;
+          window.dispatchEvent(new CustomEvent('clustercord-profile-updated'));
           myNameEl.innerText = userProfile.nick || currentUser || "Usuário";
           myBioEl.innerText = userProfile.bio || "Sem bio";
           if (userProfile.photo) {
@@ -1905,6 +1952,34 @@
       }
     }
 
+    async function awardClustercoin() {
+      if (!currentUser || !authenticatedUid) return;
+
+      try {
+        const userRef = doc(db, "users", currentUser);
+        await runTransaction(db, async (transaction) => {
+          const snap = await transaction.get(userRef);
+          if (!snap.exists()) return;
+
+          const data = snap.data() || {};
+          const lastAward = data.lastClustercoinAt;
+          const lastMillis = lastAward?.toMillis ? lastAward.toMillis() : 0;
+          const nowMillis = Date.now();
+
+          if (lastMillis && (nowMillis - lastMillis) < 60000) return;
+
+          const currentCoins = Number(data.clustercoins || 0);
+          transaction.update(userRef, {
+            clustercoins: Math.round((currentCoins + 0.5) * 10) / 10,
+            lastClustercoinAt: serverTimestamp()
+          });
+        });
+      } catch (error) {
+        // A falha na recompensa nunca interrompe nem desfaz o envio da mensagem.
+        console.error('Erro ao adicionar Clustercoin:', error);
+      }
+    }
+
     async function sendMessage() {
       const text = messageInput.value.trim();
       if (!text || !activeChat) return;
@@ -1954,6 +2029,7 @@
         return;
       }
 
+      await awardClustercoin();
       messageInput.value = '';
 
       if (activeChat.type === 'direct') {
@@ -3879,4 +3955,375 @@
       });
     })();
 
+</script>
+
+<!-- CLUSTERSTORE (ADITIVO: não substitui nem altera os layouts/funcionalidades existentes) -->
+<style id="clustercord-clusterstore-addition">
+  .clusterstore-sidebar-button {
+    width: 100%;
+    min-height: 42px;
+    padding: 0.62rem 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    background: linear-gradient(135deg, rgba(0,136,255,0.18), rgba(0,136,255,0.07));
+    color: var(--text-main);
+    border: 1px solid rgba(0,136,255,0.28);
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: 0.2s;
+    text-align: left;
+  }
+
+  .clusterstore-sidebar-button:hover {
+    background: linear-gradient(135deg, rgba(0,136,255,0.27), rgba(0,136,255,0.11));
+    border-color: rgba(0,136,255,0.5);
+    transform: translateY(-1px);
+  }
+
+  .clusterstore-sidebar-icon {
+    width: 25px;
+    height: 25px;
+    border-radius: 7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,136,255,0.18);
+    color: #65b9ff;
+    font-size: 1rem;
+    flex-shrink: 0;
+  }
+
+  .clusterstore-sidebar-arrow {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-size: 1.15rem;
+    line-height: 1;
+  }
+
+  .clusterstore-view {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    background:
+      radial-gradient(circle at 50% 0%, rgba(0,136,255,0.14), transparent 38%),
+      var(--bg-dark);
+    overflow: hidden;
+  }
+
+  .clusterstore-view.hidden {
+    display: none !important;
+  }
+
+  .clusterstore-header {
+    min-height: 70px;
+    padding: 0.8rem 1.2rem;
+    display: grid;
+    grid-template-columns: 48px 1fr 48px;
+    align-items: center;
+    gap: 0.7rem;
+    background: rgba(18,19,24,0.94);
+    border-bottom: 1px solid var(--border-color);
+    backdrop-filter: blur(12px);
+  }
+
+  .clusterstore-title-wrap {
+    text-align: center;
+  }
+
+  .clusterstore-kicker {
+    color: var(--accent-blue);
+    font-size: 0.58rem;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    margin-bottom: 0.12rem;
+  }
+
+  .clusterstore-header h1 {
+    font-family: 'Outfit', sans-serif;
+    font-size: clamp(1.25rem, 2.5vw, 1.7rem);
+    line-height: 1;
+    margin: 0;
+  }
+
+  .clusterstore-back {
+    width: 42px;
+    height: 42px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9px;
+    background: var(--bg-input);
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+    font-size: 1.15rem;
+    font-weight: 700;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .clusterstore-header-spacer {
+    width: 42px;
+    height: 42px;
+  }
+
+  .clusterstore-content {
+    width: min(900px, calc(100% - 2rem));
+    margin: 0 auto;
+    padding: clamp(1.2rem, 4vw, 3rem) 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.25rem;
+  }
+
+  .clusterstore-hero {
+    width: min(620px, 100%);
+    padding: clamp(1.6rem, 5vw, 2.8rem);
+    border-radius: 22px;
+    border: 1px solid rgba(0,136,255,0.26);
+    background:
+      linear-gradient(145deg, rgba(0,136,255,0.15), rgba(18,19,24,0.96) 54%),
+      var(--bg-panel);
+    box-shadow: 0 18px 55px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.04);
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .clusterstore-hero::after {
+    content: "";
+    position: absolute;
+    width: 220px;
+    height: 220px;
+    right: -105px;
+    top: -120px;
+    border-radius: 50%;
+    background: rgba(0,136,255,0.12);
+    pointer-events: none;
+  }
+
+  .clusterstore-coin {
+    width: 94px;
+    height: 94px;
+    margin: 0 auto 1rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      radial-gradient(circle at 35% 28%, #79c5ff 0 8%, #168fe9 35%, #005eb4 72%, #003c73 100%);
+    border: 5px solid rgba(128,204,255,0.28);
+    box-shadow:
+      0 0 0 7px rgba(0,136,255,0.08),
+      0 12px 32px rgba(0,136,255,0.28),
+      inset 0 2px 5px rgba(255,255,255,0.35),
+      inset 0 -8px 12px rgba(0,0,0,0.25);
+    transform: rotate(-7deg);
+  }
+
+  .clusterstore-coin span {
+    font-family: 'Outfit', sans-serif;
+    color: #eaf7ff;
+    font-size: 1.45rem;
+    font-weight: 800;
+    transform: rotate(7deg);
+    text-shadow: 0 2px 8px rgba(0,0,0,0.35);
+  }
+
+  .clusterstore-balance-label {
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.15em;
+  }
+
+  .clusterstore-balance {
+    margin-top: 0.2rem;
+    font-family: 'Outfit', sans-serif;
+    font-size: clamp(2.7rem, 8vw, 4.7rem);
+    line-height: 1;
+    font-weight: 800;
+    color: #fff;
+    text-shadow: 0 0 25px rgba(0,136,255,0.35);
+  }
+
+  .clusterstore-currency {
+    margin-top: 0.35rem;
+    color: #67b9ff !important;
+    font-size: 0.9rem;
+    font-weight: 700;
+    display: block;
+    visibility: visible;
+    opacity: 1;
+    position: relative;
+    z-index: 3;
+  }
+
+  .clusterstore-rule {
+    margin-top: 1rem;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+  }
+
+  .clusterstore-items {
+    width: min(620px, 100%);
+    padding: 1.15rem;
+    border-radius: 16px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+  }
+
+  .clusterstore-items-title {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    color: var(--text-main);
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.85rem;
+  }
+
+  .clusterstore-items-line {
+    height: 1px;
+    flex: 1;
+    background: var(--border-color);
+  }
+
+  .clusterstore-coming-soon {
+    min-height: 86px;
+    padding: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    border-radius: 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+  }
+
+  .clusterstore-coming-icon {
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,136,255,0.12);
+    color: #65b9ff;
+    font-size: 1.15rem;
+  }
+
+  .clusterstore-coming-title {
+    font-size: 0.95rem;
+    font-weight: 800;
+  }
+
+  .clusterstore-coming-sub {
+    margin-top: 0.22rem;
+    color: var(--text-muted);
+    font-size: 0.76rem;
+    line-height: 1.4;
+  }
+
+  @media (max-width: 700px) {
+    .clusterstore-view {
+      min-height: 100%;
+    }
+
+    .clusterstore-header {
+      min-height: 62px;
+      padding: 0.65rem 0.75rem;
+    }
+
+    .clusterstore-content {
+      width: min(100% - 1.2rem, 620px);
+      padding: 1rem 0 max(1rem, env(safe-area-inset-bottom));
+      gap: 0.9rem;
+    }
+
+    .clusterstore-hero {
+      padding: 1.35rem 1rem 1.45rem;
+      border-radius: 17px;
+    }
+
+    .clusterstore-coin {
+      width: 78px;
+      height: 78px;
+      margin-bottom: 0.8rem;
+    }
+
+    .clusterstore-balance {
+      font-size: clamp(2.5rem, 15vw, 4rem);
+    }
+
+    .clusterstore-rule {
+      font-size: 0.7rem;
+    }
+
+    .clusterstore-items {
+      padding: 0.9rem;
+    }
+
+    .clusterstore-coming-soon {
+      align-items: flex-start;
+      padding: 0.85rem;
+    }
+
+    .clusterstore-coming-sub {
+      font-size: 0.72rem;
+    }
+  }
+</style>
+
+<script>
+(() => {
+  'use strict';
+
+  const app = document.getElementById('app-screen');
+  const storeView = document.getElementById('clusterstore-view');
+  const openButton = document.getElementById('btn-clusterstore');
+  const backButton = document.getElementById('clusterstore-back');
+  const balance = document.getElementById('clusterstore-balance');
+
+  if (!app || !storeView || !openButton || !backButton || !balance) return;
+
+  const isStoreOpen = () => app.classList.contains('clusterstore-open');
+
+  const formatCoins = (value) => {
+    const number = Number(value || 0);
+    return Number.isFinite(number) ? number.toFixed(1) : '0.0';
+  };
+
+  const syncBalance = () => {
+    // userProfile pertence ao módulo principal e é atualizado pelo snapshot
+    // original da conta; este bloco apenas lê o valor exposto na interface.
+    const profile = window.__clustercordUserProfile;
+    balance.textContent = formatCoins(profile?.clustercoins);
+  };
+
+  const openStore = () => {
+    syncBalance();
+    app.classList.add('clusterstore-open');
+    storeView.classList.remove('hidden');
+  };
+
+  const closeStore = () => {
+    app.classList.remove('clusterstore-open');
+    storeView.classList.add('hidden');
+  };
+
+  openButton.addEventListener('click', openStore);
+  backButton.addEventListener('click', closeStore);
+
+  // Mantém o saldo sincronizado sem substituir o listener original da conta.
+  window.addEventListener('clustercord-profile-updated', syncBalance);
+})();
 </script>
