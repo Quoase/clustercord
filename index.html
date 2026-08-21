@@ -430,6 +430,50 @@
       border-radius: 12px;
     }
 
+    .screen-share-prompt {
+      width: min(760px, 100%);
+      background: var(--bg-panel);
+      border: 1px solid var(--accent-blue);
+      border-radius: 12px;
+      padding: 0.85rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.8rem;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+    }
+
+    .screen-share-prompt-text {
+      min-width: 0;
+      font-size: 0.88rem;
+      line-height: 1.35;
+    }
+
+    .screen-share-prompt-text strong {
+      color: var(--text-main);
+    }
+
+    .screen-share-prompt-actions {
+      display: flex;
+      gap: 0.45rem;
+      flex-shrink: 0;
+    }
+
+    @media (max-width: 600px) {
+      .screen-share-prompt {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .screen-share-prompt-actions {
+        width: 100%;
+      }
+
+      .screen-share-prompt-actions .btn-small {
+        flex: 1;
+      }
+    }
+
 
     .unread-badge {
       min-width: 20px;
@@ -1016,6 +1060,8 @@
     let localScreenStream = null;
     let isMicMuted = false;
     let isScreenSharing = false;
+    const voiceRemoteScreenStreams = new Map();
+    const screenShareViewerChoices = new Map();
 
 
     // AUTENTICAÇÃO SEGURA: Firebase Authentication é a fonte real da sessão.
@@ -1783,6 +1829,205 @@
       return doc(db, "voiceRooms", groupId, "connections", pairId);
     }
 
+    function renderScreenSharePrompts(users = []) {
+      const panel = chatMessagesEl.querySelector('.voice-panel');
+      if (!panel) return;
+
+      let container = panel.querySelector('.screen-share-prompts');
+      if (!container) {
+        container = document.createElement('div');
+        container.className = 'screen-share-prompts';
+        panel.insertBefore(container, panel.firstElementChild);
+      }
+
+      const sharingUsers = users
+        .map(entry => typeof entry === 'string'
+          ? { user: entry, sharingScreen: false }
+          : entry)
+        .filter(entry => entry.user !== currentUser && entry.sharingScreen);
+
+      const sharingNicks = new Set(sharingUsers.map(entry => entry.user));
+      for (const nick of [...screenShareViewerChoices.keys()]) {
+        if (!sharingNicks.has(nick)) screenShareViewerChoices.delete(nick);
+      }
+
+      container.innerHTML = '';
+
+      sharingUsers.forEach(entry => {
+        const nick = entry.user;
+        if (screenShareViewerChoices.has(nick)) return;
+
+        const prompt = document.createElement('div');
+        prompt.className = 'screen-share-prompt';
+        prompt.innerHTML = `
+          <div class="screen-share-prompt-text">
+            🖥️ <strong>${escapeHtml(nick)}</strong> está transmitindo a tela.<br>
+            Você quer ver a transmissão?
+          </div>
+          <div class="screen-share-prompt-actions">
+            <button type="button" class="btn-small" data-screen-share-yes>Sim</button>
+            <button type="button" class="btn-small btn-secondary" data-screen-share-no>Não</button>
+          </div>
+        `;
+
+        prompt.querySelector('[data-screen-share-yes]').onclick = () => {
+          screenShareViewerChoices.set(nick, true);
+          const stream = voiceRemoteScreenStreams.get(nick);
+          openScreenShareViewer(nick, stream || null);
+          renderScreenSharePrompts(users);
+        };
+
+        prompt.querySelector('[data-screen-share-no]').onclick = () => {
+          screenShareViewerChoices.set(nick, false);
+          renderScreenSharePrompts(users);
+        };
+
+        container.appendChild(prompt);
+      });
+
+      if (!container.children.length) container.remove();
+    }
+
+    function openScreenShareViewer(remoteNick, stream = null) {
+      let viewer = window.__clustercordScreenViewers?.get(remoteNick);
+
+      if (!viewer || viewer.closed) {
+        if (!window.__clustercordScreenViewers) {
+          window.__clustercordScreenViewers = new Map();
+        }
+
+        viewer = window.open('', '_blank');
+        if (!viewer) {
+          alert('O navegador bloqueou a nova aba da transmissão. Permita pop-ups para o Clustercord e tente novamente.');
+          screenShareViewerChoices.delete(remoteNick);
+          return null;
+        }
+
+        viewer.document.open();
+        viewer.document.write(`
+          <!DOCTYPE html>
+          <html lang="pt-BR">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Transmissão de ${escapeHtml(remoteNick)} • Clustercord!</title>
+            <style>
+              :root {
+                --bg:#0a0a0c;
+                --panel:#121318;
+                --border:#272934;
+                --text:#f0f2f5;
+                --muted:#8e9297;
+                --blue:#0088ff;
+              }
+              * { box-sizing:border-box; }
+              html,body {
+                width:100%;
+                height:100%;
+                margin:0;
+              }
+              body {
+                background:radial-gradient(circle at center, #003865 0%, var(--bg) 72%);
+                color:var(--text);
+                font-family:Inter,Arial,sans-serif;
+                display:flex;
+                flex-direction:column;
+                overflow:hidden;
+              }
+              header {
+                min-height:64px;
+                padding:0 22px;
+                background:rgba(18,19,24,.96);
+                border-bottom:1px solid var(--border);
+                display:flex;
+                align-items:center;
+                gap:12px;
+              }
+              .dot {
+                width:10px;
+                height:10px;
+                border-radius:50%;
+                background:var(--blue);
+                box-shadow:0 0 14px rgba(0,136,255,.7);
+              }
+              .title {
+                font-weight:700;
+                font-size:1rem;
+              }
+              .subtitle {
+                color:var(--muted);
+                font-size:.78rem;
+                margin-top:2px;
+              }
+              main {
+                flex:1;
+                min-height:0;
+                padding:18px;
+                display:flex;
+                align-items:center;
+                justify-content:center;
+              }
+              video {
+                width:100%;
+                height:100%;
+                max-width:1600px;
+                max-height:calc(100vh - 100px);
+                object-fit:contain;
+                background:#000;
+                border:1px solid var(--border);
+                border-radius:14px;
+                box-shadow:0 14px 45px rgba(0,0,0,.55);
+              }
+              #status {
+                position:absolute;
+                left:50%;
+                top:50%;
+                transform:translate(-50%,-50%);
+                color:var(--muted);
+                text-align:center;
+                padding:20px;
+              }
+            </style>
+          </head>
+          <body>
+            <header>
+              <span class="dot"></span>
+              <div>
+                <div class="title">Transmissão de ${escapeHtml(remoteNick)}</div>
+                <div class="subtitle">Clustercord • transmissão de tela em tempo real</div>
+              </div>
+            </header>
+            <main>
+              <div id="status">Aguardando a transmissão...</div>
+              <video id="screen-video" autoplay playsinline controls></video>
+            </main>
+          </body>
+          </html>
+        `);
+        viewer.document.close();
+        window.__clustercordScreenViewers.set(remoteNick, viewer);
+
+        viewer.addEventListener('beforeunload', () => {
+          window.__clustercordScreenViewers?.delete(remoteNick);
+        });
+      }
+
+      try {
+        const video = viewer.document.getElementById('screen-video');
+        const status = viewer.document.getElementById('status');
+
+        if (stream && video) {
+          video.srcObject = stream;
+          if (status) status.style.display = 'none';
+          video.play().catch(() => {});
+        }
+      } catch (e) {
+        console.error('Erro ao atualizar a aba da transmissão:', e);
+      }
+
+      return viewer;
+    }
+
     function showVoicePanel(groupId, channelName, users = []) {
       const existingPanel = chatMessagesEl.querySelector('.voice-panel');
 
@@ -1819,6 +2064,7 @@
 
       if (!users.length) {
         list.innerHTML = '<div class="voice-empty">Ninguém conectado ainda.</div>';
+        renderScreenSharePrompts(users);
         return;
       }
 
@@ -1831,6 +2077,8 @@
         item.innerHTML = `<span>${muted ? '🔇' : '🎤'}</span><span>${escapeHtml(nick)}</span><span class="voice-status">${sharing ? 'Transmitindo tela' : (muted ? 'Microfone desligado' : 'Conectado')}</span>`;
         list.appendChild(item);
       });
+
+      renderScreenSharePrompts(users);
     }
 
     async function setupVoicePeer(groupId, remoteNick, channelName) {
@@ -1876,6 +2124,9 @@
         }
 
         if (event.track.kind === 'video') {
+          const remoteScreenStream = stream || new MediaStream([event.track]);
+          voiceRemoteScreenStreams.set(remoteNick, remoteScreenStream);
+
           const safeNick = remoteNick.replace(/[^a-zA-Z0-9_-]/g, '_');
           let video = document.getElementById(`voice-screen-${safeNick}`);
           if (!video) {
@@ -1887,9 +2138,22 @@
             video.controls = false;
             document.getElementById('voice-media')?.appendChild(video);
           }
-          video.srcObject = stream;
+
+          video.srcObject = remoteScreenStream;
           video.play().catch(() => {});
-          event.track.onended = () => video.remove();
+
+          if (screenShareViewerChoices.get(remoteNick) === true) {
+            openScreenShareViewer(remoteNick, remoteScreenStream);
+          }
+
+          event.track.onended = () => {
+            voiceRemoteScreenStreams.delete(remoteNick);
+            video.remove();
+
+            const viewer = window.__clustercordScreenViewers?.get(remoteNick);
+            try { viewer?.close(); } catch (e) {}
+            window.__clustercordScreenViewers?.delete(remoteNick);
+          };
         }
       };
 
@@ -1999,6 +2263,12 @@
       const safeNick = remoteNick.replace(/[^a-zA-Z0-9_-]/g, '_');
       document.getElementById(`voice-audio-${safeNick}`)?.remove();
       document.getElementById(`voice-screen-${safeNick}`)?.remove();
+
+      voiceRemoteScreenStreams.delete(remoteNick);
+      screenShareViewerChoices.delete(remoteNick);
+      const viewer = window.__clustercordScreenViewers?.get(remoteNick);
+      try { viewer?.close(); } catch (e) {}
+      window.__clustercordScreenViewers?.delete(remoteNick);
 
       voicePeers.delete(remoteNick);
       voiceCandidateQueues.delete(remoteNick);
@@ -2121,6 +2391,12 @@
       isScreenSharing = false;
       localScreenStream = null;
       localVoiceStream = null;
+      voiceRemoteScreenStreams.clear();
+      screenShareViewerChoices.clear();
+      for (const viewer of window.__clustercordScreenViewers?.values?.() || []) {
+        try { viewer.close(); } catch (e) {}
+      }
+      window.__clustercordScreenViewers?.clear?.();
       updateVoiceControls();
 
       if (showText && activeChat?.type === 'group') {
