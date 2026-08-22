@@ -2105,8 +2105,7 @@
       }
 
       pc.ontrack = (event) => {
-        const stream = event.streams[0];
-        if (!stream) return;
+        const stream = event.streams?.[0] || new MediaStream([event.track]);
 
         if (event.track.kind === 'audio') {
           let audio = document.getElementById(`voice-audio-${remoteNick.replace(/[^a-zA-Z0-9_-]/g, '_')}`);
