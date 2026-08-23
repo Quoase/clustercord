@@ -1058,6 +1058,8 @@
 
     let localVoiceStream = null;
     let localScreenStream = null;
+    let screenAudioContext = null;
+    let screenMixedAudioTrack = null;
     let isMicMuted = false;
     let isScreenSharing = false;
     const voiceRemoteScreenStreams = new Map();
@@ -2105,7 +2107,8 @@
       }
 
       pc.ontrack = (event) => {
-        const stream = event.streams?.[0] || new MediaStream([event.track]);
+        const stream = event.streams[0];
+        if (!stream) return;
 
         if (event.track.kind === 'audio') {
           let audio = document.getElementById(`voice-audio-${remoteNick.replace(/[^a-zA-Z0-9_-]/g, '_')}`);
@@ -2608,13 +2611,32 @@
           localScreenStream.getTracks().forEach(track => track.stop());
           localScreenStream = null;
         }
+
+        if (screenMixedAudioTrack) {
+          try { screenMixedAudioTrack.stop(); } catch (e) {}
+          screenMixedAudioTrack = null;
+        }
+        if (screenAudioContext) {
+          try { await screenAudioContext.close(); } catch (e) {}
+          screenAudioContext = null;
+        }
+
         for (const peer of voicePeers.values()) {
           if (peer.videoSender) {
             try { await peer.videoSender.replaceTrack(null); } catch (e) {
               console.error('Erro ao parar a transmissão para um participante:', e);
             }
           }
+
+          const audioSender = peer.pc?.getSenders?.().find(sender => sender.track?.kind === 'audio');
+          const microphoneTrack = voiceLocalStream?.getAudioTracks?.()[0];
+          if (audioSender && microphoneTrack) {
+            try { await audioSender.replaceTrack(microphoneTrack); } catch (e) {
+              console.error('Erro ao restaurar o áudio do microfone:', e);
+            }
+          }
         }
+
         isScreenSharing = false;
         updateVoiceControls();
         await updateVoiceParticipantState({ sharingScreen: false });
@@ -2629,11 +2651,53 @@
       try {
         localScreenStream = await navigator.mediaDevices.getDisplayMedia({
           video: { frameRate: { ideal: 30, max: 60 } },
-          audio: false
+          audio: true
         });
 
         const videoTrack = localScreenStream.getVideoTracks()[0];
         if (!videoTrack) throw new Error('Nenhuma faixa de vídeo foi disponibilizada.');
+
+        // Quando o navegador disponibiliza áudio da tela/aba, ele é misturado
+        // ao microfone e enviado pelo mesmo canal de áudio já usado pela chamada.
+        const displayAudioTrack = localScreenStream.getAudioTracks()[0];
+        if (displayAudioTrack && voiceLocalStream.getAudioTracks().length) {
+          try {
+            screenAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+            await screenAudioContext.resume();
+
+            const destination = screenAudioContext.createMediaStreamDestination();
+            const microphoneSource = screenAudioContext.createMediaStreamSource(
+              new MediaStream([voiceLocalStream.getAudioTracks()[0]])
+            );
+            const screenSource = screenAudioContext.createMediaStreamSource(
+              new MediaStream([displayAudioTrack])
+            );
+
+            microphoneSource.connect(destination);
+            screenSource.connect(destination);
+
+            screenMixedAudioTrack = destination.stream.getAudioTracks()[0];
+
+            for (const peer of voicePeers.values()) {
+              const audioSender = peer.pc?.getSenders?.().find(sender => sender.track?.kind === 'audio');
+              if (audioSender) {
+                try { await audioSender.replaceTrack(screenMixedAudioTrack); } catch (e) {
+                  console.error('Erro ao enviar o áudio da transmissão:', e);
+                }
+              }
+            }
+          } catch (audioErr) {
+            console.warn('Áudio da transmissão indisponível; vídeo continuará normalmente:', audioErr);
+            if (screenMixedAudioTrack) {
+              try { screenMixedAudioTrack.stop(); } catch (e) {}
+              screenMixedAudioTrack = null;
+            }
+            if (screenAudioContext) {
+              try { await screenAudioContext.close(); } catch (e) {}
+              screenAudioContext = null;
+            }
+          }
+        }
 
         for (const peer of voicePeers.values()) {
           if (peer.videoSender) {
@@ -2657,6 +2721,14 @@
           localScreenStream.getTracks().forEach(track => track.stop());
           localScreenStream = null;
         }
+        if (screenMixedAudioTrack) {
+          try { screenMixedAudioTrack.stop(); } catch (e) {}
+          screenMixedAudioTrack = null;
+        }
+        if (screenAudioContext) {
+          try { await screenAudioContext.close(); } catch (e) {}
+          screenAudioContext = null;
+        }
         isScreenSharing = false;
         updateVoiceControls();
         console.error('Compartilhamento de tela cancelado/indisponível:', err);
@@ -2667,6 +2739,14 @@
       if (localScreenStream) {
         localScreenStream.getTracks().forEach(track => track.stop());
         localScreenStream = null;
+      }
+      if (screenMixedAudioTrack) {
+        try { screenMixedAudioTrack.stop(); } catch (e) {}
+        screenMixedAudioTrack = null;
+      }
+      if (screenAudioContext) {
+        screenAudioContext.close().catch(() => {});
+        screenAudioContext = null;
       }
       if (voiceLocalStream) {
         voiceLocalStream.getTracks().forEach(track => track.stop());
