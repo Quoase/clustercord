@@ -2200,9 +2200,18 @@
         document.getElementById('voice-media')?.appendChild(wrap);
       }
 
-      video.muted = !!local;
+      // O áudio da transmissão é tratado pelo elemento <audio> separado.
+      // Manter o vídeo remoto mutado evita bloqueio de autoplay sem afetar
+      // o áudio da tela.
+      video.muted = true;
       video.srcObject = stream;
-      video.play().catch(() => {});
+      const playVideo = () => video.play().catch(() => {});
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        playVideo();
+      } else {
+        video.addEventListener('loadedmetadata', playVideo, { once: true });
+        video.addEventListener('canplay', playVideo, { once: true });
+      }
       applyScreenSelection();
       return video;
     }
@@ -2252,11 +2261,14 @@
       }
 
       pc.ontrack = (event) => {
-        // O compartilhamento de tela usa replaceTrack() em um transceiver já
-        // negociado. Nesse caso, alguns navegadores entregam o vídeo sem
-        // preencher event.streams[0]. Criamos o MediaStream a partir da própria
-        // faixa para garantir que a tela remota seja exibida.
-        const stream = event.streams[0] || new MediaStream([event.track]);
+        // A transmissão de tela possui um transceiver próprio de vídeo.
+        // Não usamos event.streams[0] aqui, pois alguns navegadores podem
+        // entregar nesse stream também uma faixa de áudio da chamada.
+        // Isso pode bloquear o autoplay do <video> e resultar em tela preta.
+        // Criamos sempre um MediaStream contendo somente a faixa de vídeo.
+        const stream = event.track.kind === 'video'
+          ? new MediaStream([event.track])
+          : (event.streams[0] || new MediaStream([event.track]));
 
         if (event.track.kind === 'audio') {
           const safeNick = remoteNick.replace(/[^a-zA-Z0-9_-]/g, '_');
