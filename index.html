@@ -579,6 +579,34 @@
       gap: 1rem;
     }
 
+    .message-date-separator {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      width: 100%;
+      margin: 0.35rem 0 0.15rem;
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      user-select: none;
+    }
+
+    .message-date-separator::before,
+    .message-date-separator::after {
+      content: '';
+      height: 1px;
+      flex: 1;
+      background: rgba(255,255,255,0.08);
+    }
+
+    .message-date-separator span {
+      padding: 0.25rem 0.65rem;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.035);
+      white-space: nowrap;
+    }
+
     .message-wrapper {
       display: flex;
       gap: 0.8rem;
@@ -2829,7 +2857,53 @@
         msgs.sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
         chatMessagesEl.innerHTML = '';
 
+        let previousMessageDateKey = null;
+
+        const getMessageDate = (timestamp) => {
+          if (!timestamp) return null;
+          const date = typeof timestamp.toDate === 'function' ? timestamp.toDate() : new Date(timestamp);
+          return Number.isNaN(date.getTime()) ? null : date;
+        };
+
+        const getDateKey = (date) => {
+          if (!date) return null;
+          return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        };
+
+        const getMessageDateLabel = (date) => {
+          if (!date) return '';
+          const now = new Date();
+          const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const messageStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+          const diffDays = Math.floor((todayStart - messageStart) / 86400000);
+
+          if (diffDays === 0) return 'Hoje';
+          if (diffDays === 1) return 'Ontem';
+          if (diffDays === 2) return 'Anteontem';
+          if (diffDays >= 3 && diffDays < 30) return `Dia ${String(date.getDate()).padStart(2, '0')}`;
+          if (diffDays >= 30 && diffDays < 60) return 'Há um mês';
+          if (diffDays >= 60 && diffDays < 365) {
+            const months = Math.floor(diffDays / 30);
+            return `Há ${months} meses`;
+          }
+          if (diffDays >= 365 && diffDays < 730) return 'Há um ano';
+          if (diffDays >= 730) return `Há ${Math.floor(diffDays / 365)} anos`;
+          return date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+        };
+
         for (let msg of msgs) {
+          const messageDate = getMessageDate(msg.timestamp);
+          const messageDateKey = getDateKey(messageDate);
+          if (messageDateKey && messageDateKey !== previousMessageDateKey) {
+            const separator = document.createElement('div');
+            separator.className = 'message-date-separator';
+            const label = document.createElement('span');
+            label.textContent = getMessageDateLabel(messageDate);
+            separator.appendChild(label);
+            chatMessagesEl.appendChild(separator);
+            previousMessageDateKey = messageDateKey;
+          }
+
           const isMe = msg.sender === currentUser;
           const wrapper = document.createElement('div');
           wrapper.className = `message-wrapper ${isMe ? 'sent' : 'received'}`;
