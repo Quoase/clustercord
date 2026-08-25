@@ -798,6 +798,36 @@
     .close-modal:hover {
       color: #fff;
     }
+
+    /* --- CARGOS / PERMISSÕES DE GRUPO --- */
+    .clustercord-role-tag {
+      display: inline-flex;
+      align-items: center;
+      margin-left: 0.35rem;
+      padding: 0.16rem 0.42rem;
+      border-radius: 999px;
+      background: rgba(0, 136, 255, 0.14);
+      border: 1px solid rgba(0, 136, 255, 0.32);
+      color: var(--accent-blue);
+      font-size: 0.64rem;
+      font-weight: 800;
+      vertical-align: middle;
+      line-height: 1.1;
+    }
+
+    .clustercord-permission-tag {
+      display: inline-flex;
+      align-items: center;
+      margin-left: 0.35rem;
+      padding: 0.14rem 0.38rem;
+      border-radius: 999px;
+      background: rgba(87, 211, 140, 0.12);
+      border: 1px solid rgba(87, 211, 140, 0.28);
+      color: #57d38c;
+      font-size: 0.6rem;
+      font-weight: 800;
+      vertical-align: middle;
+    }
   </style>
 
   <style>
@@ -1097,6 +1127,10 @@
             <input type="text" id="new-member-nick" placeholder="Nickname">
             <button class="btn-small" id="btn-add-member">Adicionar</button>
           </div>
+        </div>
+        <div class="input-group">
+          <label>Permissão para apagar mensagens</label>
+          <div id="message-delete-permission-list" style="display:flex; flex-direction:column; gap:0.45rem;"></div>
         </div>
       </div>
       <div class="section-title">Lista de Membros</div>
@@ -1816,6 +1850,43 @@
       renderSidebar();
     }
 
+    function isClustercordCreator(nick = currentUser) {
+      return String(nick || '').trim().toLowerCase() === 'felypex';
+    }
+
+    function isGroupOwner(group = activeChat?.data) {
+      if (!group) return false;
+      return group.owner === currentUser ||
+        (!!authenticatedUid && group.ownerUid === authenticatedUid);
+    }
+
+    function canManageGroup(group = activeChat?.data) {
+      return isGroupOwner(group) || isClustercordCreator();
+    }
+
+    function canDeleteGroupMessages(group = activeChat?.data, nick = currentUser) {
+      if (!group || group.owner === nick || isClustercordCreator(nick)) return true;
+      return Array.isArray(group.messageDeletePermissions) &&
+        group.messageDeletePermissions.includes(nick);
+    }
+
+    function getGroupRoleLabel(nick, group = activeChat?.data) {
+      const tags = [];
+      if (group?.owner === nick || group?.ownerUid === (usersCache[nick]?.uid || null)) {
+        tags.push('<span class="clustercord-role-tag">Dono</span>');
+      }
+      if (isClustercordCreator(nick)) {
+        tags.push('<span class="clustercord-role-tag">Criador</span>');
+      }
+      if (Array.isArray(group?.messageDeletePermissions) &&
+          group.messageDeletePermissions.includes(nick) &&
+          group?.owner !== nick &&
+          !isClustercordCreator(nick)) {
+        tags.push('<span class="clustercord-permission-tag">Pode apagar</span>');
+      }
+      return tags.join('');
+    }
+
     async function selectGroupChat(groupId, groupData) {
       await leaveVoiceChannel(false);
       activeChat = { type: 'group', id: groupId, name: groupData.name, data: groupData };
@@ -1824,7 +1895,8 @@
       marcarComoLido(channelUnreadKey(groupId, activeChannel));
 
       document.getElementById('active-chat-name').innerText = groupData.name;
-      document.getElementById('active-chat-sub').innerText = `Dono: ${groupData.owner}`;
+      document.getElementById('active-chat-sub').innerText =
+        `Dono: ${groupData.owner}${isClustercordCreator() ? ' • Criador' : ''}`;
       
       const activeAvatar = document.getElementById('active-avatar');
       activeAvatar.style.backgroundImage = 'none';
@@ -1879,8 +1951,10 @@
           memberUids: remainingMemberUids
         };
         if (group.owner === currentUser || group.ownerUid === authenticatedUid) {
-          changes.owner = remainingMembers[0];
-          changes.ownerUid = remainingMemberUids[0];
+          const creatorIndex = remainingMembers.findIndex(member => isClustercordCreator(member));
+          const nextOwnerIndex = creatorIndex >= 0 ? creatorIndex : 0;
+          changes.owner = remainingMembers[nextOwnerIndex];
+          changes.ownerUid = remainingMemberUids[nextOwnerIndex];
         }
         await updateDoc(groupRef, changes);
       }
@@ -2963,13 +3037,25 @@
             bubble.appendChild(document.createTextNode(String(msg.text || '')));
           }
 
-          if (activeChat.type === 'group' && activeChat.data.owner === currentUser) {
+          if (activeChat.type === 'group' && (
+            String(currentUser || '').trim().toLowerCase() === 'felypex' ||
+            canDeleteGroupMessages(activeChat.data, currentUser)
+          )) {
             const btnDel = document.createElement('button');
             btnDel.className = 'btn-delete-msg';
             btnDel.innerText = '✕';
             btnDel.title = 'Apagar mensagem';
             btnDel.onclick = async () => {
-              await deleteDoc(doc(db, "messages", msg.id));
+              try {
+                await deleteDoc(doc(db, "messages", msg.id));
+              } catch (error) {
+                console.error('Erro ao apagar mensagem:', error);
+                alert(
+                  error?.code === 'permission-denied'
+                    ? 'O Firebase recusou a exclusão. A permissão precisa ser liberada nas Firestore Security Rules para o Criador (Felypex).'
+                    : `Não foi possível apagar a mensagem: ${error?.code || error?.message || 'erro desconhecido'}`
+                );
+              }
             };
             bubble.appendChild(btnDel);
           }
@@ -3128,7 +3214,8 @@
         ownerUid: authenticatedUid,
         members: members,
         memberUids: memberUids,
-        channels: ['geral']
+        channels: ['geral'],
+        messageDeletePermissions: []
       });
 
       document.getElementById('group-modal').classList.add('hidden');
@@ -3137,9 +3224,9 @@
     function openManageModal() {
       const modal = document.getElementById('manage-group-modal');
       const ownerControls = document.getElementById('owner-controls');
-      const isOwner = activeChat.data.owner === currentUser;
+      const canManage = canManageGroup(activeChat?.data);
 
-      if (isOwner) ownerControls.classList.remove('hidden');
+      if (canManage) ownerControls.classList.remove('hidden');
       else ownerControls.classList.add('hidden');
 
       renderMembersList();
@@ -3152,19 +3239,28 @@
 
     function renderMembersList() {
       const list = document.getElementById('group-members-list');
+      const permissionList = document.getElementById('message-delete-permission-list');
       list.innerHTML = '';
-      const isOwner = activeChat.data.owner === currentUser;
+      if (permissionList) permissionList.innerHTML = '';
+
+      const canManage = canManageGroup(activeChat?.data);
+      const permissions = Array.isArray(activeChat?.data?.messageDeletePermissions)
+        ? activeChat.data.messageDeletePermissions
+        : [];
 
       activeChat.data.members.forEach(m => {
         const item = document.createElement('div');
         item.style.display = 'flex';
         item.style.justifyContent = 'space-between';
         item.style.alignItems = 'center';
+        item.style.gap = '0.5rem';
         item.style.padding = '0.4rem 0';
 
-        item.innerHTML = `<span>${escapeHtml(m)} ${m === activeChat.data.owner ? '(Dono)' : ''}</span>`;
+        const left = document.createElement('span');
+        left.innerHTML = `${escapeHtml(m)} ${getGroupRoleLabel(m, activeChat.data)}`;
+        item.appendChild(left);
 
-        if (isOwner && m !== currentUser) {
+        if (canManage && m !== currentUser && m !== activeChat.data.owner && !isClustercordCreator(m)) {
           const btnKick = document.createElement('button');
           btnKick.className = 'btn-small';
           btnKick.style.background = 'var(--accent-danger)';
@@ -3179,15 +3275,52 @@
 
             await updateDoc(doc(db, "groups", activeChat.id), {
               members: arrayRemove(m),
-              memberUids: arrayRemove(memberUid)
+              memberUids: arrayRemove(memberUid),
+              messageDeletePermissions: arrayRemove(m)
             });
             activeChat.data.members = activeChat.data.members.filter(x => x !== m);
             activeChat.data.memberUids = (activeChat.data.memberUids || []).filter(x => x !== memberUid);
+            activeChat.data.messageDeletePermissions =
+              (activeChat.data.messageDeletePermissions || []).filter(x => x !== m);
             renderMembersList();
           };
           item.appendChild(btnKick);
         }
         list.appendChild(item);
+
+        if (permissionList && canManage && m !== activeChat.data.owner && !isClustercordCreator(m)) {
+          const permissionRow = document.createElement('div');
+          permissionRow.style.display = 'flex';
+          permissionRow.style.alignItems = 'center';
+          permissionRow.style.justifyContent = 'space-between';
+          permissionRow.style.gap = '0.5rem';
+
+          const permissionName = document.createElement('span');
+          permissionName.style.fontSize = '0.78rem';
+          permissionName.style.color = 'var(--text-main)';
+          permissionName.textContent = m;
+
+          const permissionButton = document.createElement('button');
+          permissionButton.className = 'btn-small ' + (permissions.includes(m) ? '' : 'btn-secondary');
+          permissionButton.textContent = permissions.includes(m)
+            ? '✓ Pode apagar'
+            : 'Dar permissão';
+          permissionButton.onclick = async () => {
+            const hasPermission = Array.isArray(activeChat.data.messageDeletePermissions) &&
+              activeChat.data.messageDeletePermissions.includes(m);
+            await updateDoc(doc(db, "groups", activeChat.id), {
+              messageDeletePermissions: hasPermission ? arrayRemove(m) : arrayUnion(m)
+            });
+            activeChat.data.messageDeletePermissions = hasPermission
+              ? (activeChat.data.messageDeletePermissions || []).filter(x => x !== m)
+              : [...(activeChat.data.messageDeletePermissions || []), m];
+            renderMembersList();
+          };
+
+          permissionRow.appendChild(permissionName);
+          permissionRow.appendChild(permissionButton);
+          permissionList.appendChild(permissionRow);
+        }
       });
     }
 
@@ -3220,8 +3353,8 @@
       if (!groupSnap.exists()) return;
 
       const group = groupSnap.data();
-      if (group.owner !== currentUser) {
-        alert("Somente o dono pode criar canais de voz.");
+      if (!isGroupOwner(group) && !isClustercordCreator()) {
+        alert("Somente o dono ou o Criador pode criar canais de voz.");
         return;
       }
 
