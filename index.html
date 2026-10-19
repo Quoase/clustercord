@@ -410,6 +410,228 @@
       padding: 0.8rem;
     }
 
+    /* ===== Painel da call: foto de perfil e organização em cartões (V4.2) ===== */
+    .voice-panel-card {
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(0, 136, 255, 0.07), transparent 120px), var(--bg-panel);
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28);
+    }
+
+    .voice-panel-card .voice-users {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, 150px);
+      justify-content: center;
+      gap: 0.8rem;
+      margin: 1.3rem 0 1.2rem;
+    }
+
+    .voice-panel-card .voice-empty {
+      grid-column: 1 / -1;
+    }
+
+    .voice-user.voice-tile {
+      position: relative;
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: center;
+      gap: 0.5rem;
+      min-width: 0;
+      padding: 1.2rem 0.7rem 0.95rem;
+      text-align: center;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .voice-user.voice-tile.is-sharing {
+      border-color: rgba(0, 136, 255, 0.6);
+      box-shadow: 0 0 0 1px rgba(0, 136, 255, 0.25);
+    }
+
+    .voice-tile-avatar-wrap {
+      position: relative;
+      width: 68px;
+      height: 68px;
+      margin-bottom: 0.2rem;
+    }
+
+    .voice-tile-avatar {
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--accent-blue);
+      background-size: cover;
+      background-position: center;
+      color: #000;
+      font-size: 1.6rem;
+      font-weight: 700;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    }
+
+    .voice-user.voice-tile.is-muted .voice-tile-avatar {
+      opacity: 0.8;
+      filter: grayscale(0.3);
+    }
+
+    .voice-tile-mic {
+      position: absolute;
+      right: -5px;
+      bottom: -3px;
+      z-index: 8;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      background: var(--bg-panel);
+      border: 2px solid var(--bg-input);
+    }
+
+    .voice-user.voice-tile.is-muted .voice-tile-mic {
+      background: rgba(255, 77, 77, 0.22);
+    }
+
+    .voice-tile-name {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 0.92rem;
+      font-weight: 600;
+    }
+
+    .voice-tile-you {
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      font-weight: 500;
+    }
+
+    .voice-tile-status {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #57d38c;
+    }
+
+    .voice-user.voice-tile.is-muted .voice-tile-status {
+      color: var(--text-muted);
+    }
+
+    .voice-user.voice-tile.is-sharing .voice-tile-status {
+      color: var(--accent-blue);
+    }
+
+    .voice-panel-card #btn-leave-voice-panel {
+      display: block;
+      margin: 0 auto;
+      padding: 0.65rem 1.4rem;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+
+    /* Com muitas pessoas/transmissões o painel rola sem cortar o topo. */
+    .voice-panel {
+      justify-content: safe center;
+    }
+
+    /* Convite para assistir a uma transmissão */
+    .voice-watch-invites {
+      width: min(560px, 100%);
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .voice-watch-invites:empty {
+      display: none;
+    }
+
+    .voice-watch-invite {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.7rem 0.9rem;
+      background: var(--bg-panel);
+      border: 1px solid rgba(0, 136, 255, 0.5);
+      border-radius: 14px;
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.25);
+    }
+
+    .voice-invite-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      background: var(--accent-blue);
+      background-size: cover;
+      background-position: center;
+      color: #000;
+      font-weight: 700;
+    }
+
+    .voice-watch-invite-text {
+      flex: 1;
+      min-width: 0;
+      font-size: 0.88rem;
+      line-height: 1.3;
+      overflow-wrap: anywhere;
+    }
+
+    .voice-watch-invite-actions {
+      display: flex;
+      gap: 0.4rem;
+      flex-shrink: 0;
+    }
+
+    .voice-watch-yes,
+    .voice-watch-no {
+      border: 0;
+      border-radius: 9px;
+      padding: 0.5rem 0.9rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .voice-watch-yes {
+      background: var(--accent-blue);
+      color: #fff;
+    }
+
+    .voice-watch-no {
+      background: var(--bg-input);
+      color: var(--text-muted);
+      border: 1px solid var(--border-color);
+    }
+
+    .voice-screen-choice.is-pending-view::after {
+      content: ' · ver';
+      opacity: 0.75;
+    }
+
+    @media (max-width: 600px) {
+      .voice-watch-invite {
+        flex-wrap: wrap;
+      }
+
+      .voice-watch-invite-actions {
+        width: 100%;
+      }
+
+      .voice-watch-yes,
+      .voice-watch-no {
+        flex: 1;
+      }
+    }
+
     .voice-audios {
       display: none;
     }
@@ -1185,6 +1407,265 @@
     const groupVoicePresence = new Map();
     const voicePeers = new Map();
     const voiceCandidateQueues = new Map();
+
+    // ===== Presença de voz: heartbeat + filtro de participantes "fantasmas" (V4.2) =====
+    // Firestore não tem "onDisconnect". Se a aba fecha de forma brusca, o registro da
+    // pessoa ficava na coleção para sempre. Agora cada participante renova `lastSeen`
+    // periodicamente e quem está sem renovar há muito tempo deixa de ser exibido.
+    const VOICE_HEARTBEAT_MS = 15000;          // frequência do "estou aqui"
+    const VOICE_STALE_MS = 75000;              // sem sinal por esse tempo = saiu da call
+    const VOICE_SWEEP_MS = 10000;              // reavaliação periódica da lista
+    const VOICE_LEGACY_MAX_MS = 6 * 60 * 60 * 1000; // registros antigos (sem lastSeen)
+    let voiceHeartbeatTimer = null;
+    let voiceHeartbeatEpoch = 0;
+    let voiceServerOffsetMs = 0;               // diferença relógio do servidor x relógio local
+    let voiceAwaitingCalibration = false;
+    let voiceLastCalibratedSeen = null;
+    let voiceAuthToken = null;
+    let voiceSnapshotHandler = null;
+    let lastVoiceSnapshot = null;
+    let lastVoiceLiveKey = '';
+    let lastGroupPresenceSnapshot = null;
+    let lastGroupPresenceKey = '';
+
+    // ===== Efeitos sonoros da call (estilo Discord) (V4.2) =====
+    // Sons gerados pelo próprio navegador (sem arquivos externos).
+    let voiceAudioCtx = null;
+    let voicePrevNicks = null;   // quem estava na call na última leitura (null = ainda não leu)
+    let voicePrevStates = new Map(); // estado (mudo/transmitindo/assistindo) de cada pessoa na última leitura
+    let voiceWatchingPublished = null; // transmissão que estou assistindo, como já informado aos outros
+    const voiceWatchAccepted = new Set();   // transmissões que eu aceitei assistir
+    const voiceWatchDismissed = new Set();  // convites que eu recusei ("Agora não")
+    let voiceSharersNow = [];               // quem está transmitindo agora (exceto eu)
+
+    // Minha própria tela sempre aparece; a dos outros só depois de eu aceitar.
+    function canViewVoiceScreen(nick) {
+      return nick === currentUser || voiceWatchAccepted.has(nick);
+    }
+
+    // Informa aos outros quem estou assistindo. Só grava quando o valor MUDA,
+    // então não gera escrita nem som repetido enquanto a pessoa segue assistindo.
+    function publishVoiceWatching() {
+      if (!activeVoiceChannel || !currentUser) return;
+      const desired = (activeScreenSelection && activeScreenSelection !== currentUser && voiceWatchAccepted.has(activeScreenSelection)) ? activeScreenSelection : null;
+      if (desired === voiceWatchingPublished) return;
+      voiceWatchingPublished = desired;
+      updateVoiceParticipantState({ watching: desired });
+    }
+
+    function voiceSoundsEnabled() {
+      try { return localStorage.getItem('clustercord_voice_sounds') !== 'off'; } catch (e) { return true; }
+    }
+
+    function unlockVoiceAudio() {
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        if (!voiceAudioCtx) voiceAudioCtx = new Ctx();
+        if (voiceAudioCtx.state === 'suspended') voiceAudioCtx.resume().catch(() => {});
+      } catch (e) {}
+    }
+
+    function playVoiceSound(kind) {
+      if (!voiceSoundsEnabled()) return;
+      try {
+        unlockVoiceAudio();
+        const ctx = voiceAudioCtx;
+        if (!ctx || ctx.state !== 'running') return;
+
+        const patterns = {
+          'self-join':  [[523.25, 0], [659.25, 0.11], [783.99, 0.22]],   // você entrou: subindo
+          'self-leave': [[659.25, 0], [523.25, 0.11], [392.00, 0.22]],   // você saiu: descendo
+          'join':       [[587.33, 0], [783.99, 0.10]],                    // alguém entrou
+          'leave':      [[523.25, 0], [392.00, 0.10]],                    // alguém saiu
+          'mute':       [[440.00, 0], [329.63, 0.07]],                    // microfone desligado
+          'unmute':     [[329.63, 0], [440.00, 0.07]],                    // microfone ligado
+          'share-start':[[698.46, 0], [880.00, 0.09], [1174.66, 0.18]],   // transmissão de tela iniciada
+          'watch':      [[987.77, 0], [987.77, 0.13]]                     // alguém começou a assistir sua transmissão
+        };
+        const notes = patterns[kind];
+        if (!notes) return;
+
+        const start = ctx.currentTime + 0.01;
+        notes.forEach(([freq, offset]) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          const t0 = start + offset;
+          gain.gain.setValueAtTime(0.0001, t0);
+          gain.gain.exponentialRampToValueAtTime(0.16, t0 + 0.015);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.16);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(t0);
+          osc.stop(t0 + 0.18);
+        });
+      } catch (e) {}
+    }
+
+    function voiceNowEstimate() {
+      return Date.now() + voiceServerOffsetMs;
+    }
+
+    function voiceTimestampMs(value) {
+      if (!value) return null;
+      if (typeof value.toMillis === 'function') return value.toMillis();
+      return typeof value === 'number' ? value : null;
+    }
+
+    function isVoiceEntryLive(docSnap) {
+      const data = docSnap.data({ serverTimestamps: 'estimate' }) || {};
+      const nick = data.user || docSnap.id;
+      if (activeVoiceChannel && nick === currentUser) return true;
+
+      const seen = voiceTimestampMs(data.lastSeen);
+      if (seen !== null) return (voiceNowEstimate() - seen) <= VOICE_STALE_MS;
+
+      // Registro criado por versão antiga (sem lastSeen): só descarta se for muito antigo.
+      const joined = voiceTimestampMs(data.joinedAt);
+      if (joined === null) return true;
+      return (voiceNowEstimate() - joined) <= VOICE_LEGACY_MAX_MS;
+    }
+
+    // Aprende a diferença entre o relógio do servidor e o do aparelho usando o
+    // próprio registro, assim um relógio errado não esconde ninguém por engano.
+    function calibrateVoiceClock(docSnap) {
+      if (!voiceAwaitingCalibration || !activeVoiceChannel || docSnap.id !== currentUser) return;
+      if (docSnap.metadata.hasPendingWrites) return;
+      const ms = voiceTimestampMs((docSnap.data() || {}).lastSeen);
+      if (ms === null || ms === voiceLastCalibratedSeen) return;
+      voiceLastCalibratedSeen = ms;
+      voiceServerOffsetMs = ms - Date.now();
+      voiceAwaitingCalibration = false;
+    }
+
+    async function refreshVoiceAuthToken() {
+      try {
+        if (auth.currentUser) voiceAuthToken = await auth.currentUser.getIdToken();
+      } catch (e) {}
+    }
+
+    async function sendVoiceHeartbeat() {
+      const channel = activeVoiceChannel;
+      if (!channel || !currentUser) return;
+      const epoch = voiceHeartbeatEpoch;
+      const ref = doc(db, 'voiceRooms', channel.groupId, 'participants', currentUser);
+      voiceAwaitingCalibration = true;
+      refreshVoiceAuthToken();
+      try {
+        await updateDoc(ref, { lastSeen: serverTimestamp() });
+      } catch (e) {
+        if (e?.code === 'not-found' && epoch === voiceHeartbeatEpoch && activeVoiceChannel === channel) {
+          // Registro sumiu (ex.: aparelho dormiu, página voltou do cache): reentra na lista.
+          try {
+            await setDoc(ref, {
+              user: currentUser,
+              channel: channel.name,
+              muted: !!isMicMuted,
+              sharingScreen: !!isScreenSharing,
+              joinedAt: serverTimestamp(),
+              lastSeen: serverTimestamp()
+            });
+          } catch (err) {
+            console.warn('Não foi possível restaurar a presença na chamada:', err);
+          }
+        } else {
+          console.warn('Falha ao renovar presença na chamada:', e);
+        }
+      }
+    }
+
+    function startVoiceHeartbeat() {
+      stopVoiceHeartbeat();
+      refreshVoiceAuthToken();
+      voiceHeartbeatTimer = setInterval(sendVoiceHeartbeat, VOICE_HEARTBEAT_MS);
+    }
+
+    function stopVoiceHeartbeat() {
+      voiceHeartbeatEpoch++;
+      if (voiceHeartbeatTimer) clearInterval(voiceHeartbeatTimer);
+      voiceHeartbeatTimer = null;
+    }
+
+    function applyGroupPresenceSnapshot(snapshot) {
+      lastGroupPresenceSnapshot = snapshot;
+      groupVoicePresence.clear();
+      const ids = [];
+
+      snapshot.forEach(d => {
+        calibrateVoiceClock(d);
+        if (!isVoiceEntryLive(d)) return;
+        const data = d.data({ serverTimestamps: 'estimate' }) || {};
+        if (!data.channel) return;
+
+        if (!groupVoicePresence.has(data.channel)) groupVoicePresence.set(data.channel, []);
+        groupVoicePresence.get(data.channel).push({
+          user: data.user || d.id,
+          muted: !!data.muted
+        });
+        ids.push(`${data.channel}:${d.id}`);
+      });
+
+      lastGroupPresenceKey = ids.sort().join('|');
+      if (activeChat?.type === 'group') renderChannels();
+    }
+
+    // Como quem some não gera nenhum evento novo, reavalia a lista de tempos em tempos.
+    function sweepVoicePresence() {
+      try {
+        if (lastVoiceSnapshot && activeVoiceChannel && voiceSnapshotHandler) {
+          const keys = [];
+          lastVoiceSnapshot.forEach(d => {
+            const data = d.data({ serverTimestamps: 'estimate' }) || {};
+            if (data.channel === activeVoiceChannel.name && isVoiceEntryLive(d)) keys.push(d.id);
+          });
+          if (keys.sort().join('|') !== lastVoiceLiveKey) voiceSnapshotHandler(lastVoiceSnapshot);
+        }
+
+        if (lastGroupPresenceSnapshot) {
+          const ids = [];
+          lastGroupPresenceSnapshot.forEach(d => {
+            const data = d.data({ serverTimestamps: 'estimate' }) || {};
+            if (data.channel && isVoiceEntryLive(d)) ids.push(`${data.channel}:${d.id}`);
+          });
+          if (ids.sort().join('|') !== lastGroupPresenceKey) applyGroupPresenceSnapshot(lastGroupPresenceSnapshot);
+        }
+      } catch (e) {
+        console.warn('Erro ao reavaliar presença de voz:', e);
+      }
+    }
+    setInterval(sweepVoicePresence, VOICE_SWEEP_MS);
+
+    // Tentativa de sair da call quando a aba/janela é fechada. O navegador pode
+    // interromper pedidos assíncronos nesse momento; por isso o heartbeat acima é
+    // a garantia principal e isto apenas acelera a saída quando funciona.
+    function leaveVoiceOnPageExit() {
+      const channel = activeVoiceChannel;
+      if (!channel || !currentUser) return;
+      try {
+        if (voiceAuthToken) {
+          const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(firebaseConfig.projectId)}/databases/(default)/documents/voiceRooms/${encodeURIComponent(channel.groupId)}/participants/${encodeURIComponent(currentUser)}`;
+          fetch(url, {
+            method: 'DELETE',
+            keepalive: true,
+            headers: { Authorization: `Bearer ${voiceAuthToken}` }
+          }).catch(() => {});
+        }
+      } catch (e) {}
+      try {
+        deleteDoc(doc(db, 'voiceRooms', channel.groupId, 'participants', currentUser)).catch(() => {});
+      } catch (e) {}
+    }
+    window.addEventListener('pagehide', leaveVoiceOnPageExit);
+    window.addEventListener('beforeunload', leaveVoiceOnPageExit);
+
+    // Voltou para a página (aba reativada, rede voltou, página restaurada): renova na hora.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') sendVoiceHeartbeat();
+    });
+    window.addEventListener('online', () => sendVoiceHeartbeat());
+    window.addEventListener('pageshow', event => { if (event.persisted) sendVoiceHeartbeat(); });
 
     let unsubscribeGroups = null;
 
@@ -1980,6 +2461,8 @@
       try { unsubscribeGroupVoicePresence?.(); } catch (e) {}
       unsubscribeGroupVoicePresence = null;
       groupVoicePresence.clear();
+      lastGroupPresenceSnapshot = null;
+      lastGroupPresenceKey = '';
     }
 
     function watchGroupVoicePresence(groupId) {
@@ -1988,20 +2471,7 @@
 
       const participantsRef = collection(db, 'voiceRooms', groupId, 'participants');
       unsubscribeGroupVoicePresence = onSnapshot(participantsRef, snapshot => {
-        groupVoicePresence.clear();
-
-        snapshot.forEach(d => {
-          const data = d.data() || {};
-          if (!data.channel) return;
-
-          if (!groupVoicePresence.has(data.channel)) groupVoicePresence.set(data.channel, []);
-          groupVoicePresence.get(data.channel).push({
-            user: data.user || d.id,
-            muted: !!data.muted
-          });
-        });
-
-        renderChannels();
+        applyGroupPresenceSnapshot(snapshot);
       }, error => {
         console.error('Erro ao acompanhar participantes dos canais de voz:', error);
       });
@@ -2079,6 +2549,104 @@
       return doc(db, "voiceRooms", groupId, "connections", pairId);
     }
 
+    // Remove aceites/recusas de quem parou de transmitir (na próxima vez, o convite aparece de novo).
+    function pruneVoiceWatchState(users) {
+      const sharers = (users || [])
+        .filter(entry => entry && entry.sharingScreen && entry.user !== currentUser)
+        .map(entry => entry.user);
+      voiceSharersNow = sharers;
+      [...voiceWatchAccepted].forEach(nick => { if (!sharers.includes(nick)) voiceWatchAccepted.delete(nick); });
+      [...voiceWatchDismissed].forEach(nick => { if (!sharers.includes(nick)) voiceWatchDismissed.delete(nick); });
+    }
+
+    function acceptVoiceWatch(nick) {
+      if (nick !== currentUser) voiceWatchAccepted.add(nick);
+      voiceWatchDismissed.delete(nick);
+      activeScreenSelection = nick;
+      applyScreenSelection();
+      renderVoiceWatchInvites();
+    }
+
+    function dismissVoiceWatch(nick) {
+      voiceWatchDismissed.add(nick);
+      renderVoiceWatchInvites();
+    }
+
+    function renderVoiceWatchInvites() {
+      const panel = chatMessagesEl.querySelector('.voice-panel');
+      if (!panel) return;
+
+      let box = document.getElementById('voice-watch-invites');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'voice-watch-invites';
+        box.className = 'voice-watch-invites';
+        const selector = document.getElementById('voice-screen-selector');
+        if (selector && selector.parentNode === panel) panel.insertBefore(box, selector);
+        else panel.appendChild(box);
+      }
+
+      const pending = voiceSharersNow.filter(nick => !voiceWatchAccepted.has(nick) && !voiceWatchDismissed.has(nick));
+      const signature = pending.join('|');
+      if (box.dataset.sig === signature && (!signature || box.childElementCount)) return;
+      box.dataset.sig = signature;
+      box.innerHTML = '';
+
+      pending.forEach(nick => {
+        const row = document.createElement('div');
+        row.className = 'voice-watch-invite';
+
+        const avatar = document.createElement('div');
+        avatar.className = 'voice-invite-avatar';
+        avatar.dataset.clustercordAvatarNick = nick;
+
+        const text = document.createElement('div');
+        text.className = 'voice-watch-invite-text';
+        const strong = document.createElement('strong');
+        strong.textContent = nick;
+        text.appendChild(strong);
+        text.appendChild(document.createTextNode(' está transmitindo a tela, você quer ver?'));
+
+        const actions = document.createElement('div');
+        actions.className = 'voice-watch-invite-actions';
+
+        const yes = document.createElement('button');
+        yes.type = 'button';
+        yes.className = 'voice-watch-yes';
+        yes.textContent = 'Ver';
+        yes.addEventListener('click', () => acceptVoiceWatch(nick));
+
+        const no = document.createElement('button');
+        no.type = 'button';
+        no.className = 'voice-watch-no';
+        no.textContent = 'Agora não';
+        no.addEventListener('click', () => dismissVoiceWatch(nick));
+
+        actions.appendChild(yes);
+        actions.appendChild(no);
+        row.appendChild(avatar);
+        row.appendChild(text);
+        row.appendChild(actions);
+        box.appendChild(row);
+
+        fillVoiceTileAvatar(avatar, nick, usersCache[nick] || null);
+        getUserData(nick).then(data => fillVoiceTileAvatar(avatar, nick, data)).catch(() => {});
+      });
+    }
+
+    function fillVoiceTileAvatar(el, nick, data) {
+      if (!el || !el.isConnected) return;
+      const photo = data && data.photo ? String(data.photo) : '';
+      if (photo) {
+        el.style.backgroundImage = `url(${photo})`;
+        el.textContent = '';
+      } else {
+        el.style.backgroundImage = '';
+        el.textContent = String(nick).charAt(0).toUpperCase();
+      }
+      if (data) window.__clustercordApplyFrame?.(el, data);
+    }
+
     function showVoicePanel(groupId, channelName, users = []) {
       const existingPanel = chatMessagesEl.querySelector('.voice-panel');
 
@@ -2112,6 +2680,22 @@
       const count = document.getElementById('voice-count');
       if (!list) return;
       if (count) count.innerText = `Canal de voz • ${users.length} conectado(s)`;
+
+      // Se nada visível mudou (ex.: só renovação de presença de alguém), mantém os cartões como estão.
+      const listSignature = users.map(entry => {
+        const sigNick = typeof entry === 'string' ? entry : entry.user;
+        const sigData = usersCache[sigNick];
+        return [
+          sigNick,
+          typeof entry === 'object' && entry.muted ? 1 : 0,
+          typeof entry === 'object' && entry.sharingScreen ? 1 : 0,
+          sigData && sigData.photo ? String(sigData.photo).length : 0,
+          (sigData && sigData.equippedFrame) || ''
+        ].join(':');
+      }).join('|');
+      if (list.dataset.sig === listSignature && list.childElementCount) return;
+      list.dataset.sig = listSignature;
+
       list.innerHTML = '';
 
       if (!users.length) {
@@ -2124,9 +2708,23 @@
         const muted = typeof entry === 'object' && entry.muted;
         const sharing = typeof entry === 'object' && entry.sharingScreen;
         const item = document.createElement('div');
-        item.className = 'voice-user';
-        item.innerHTML = `<span>${muted ? '🔇' : '🎤'}</span><span>${escapeHtml(nick)}</span><span class="voice-status">${sharing ? 'Transmitindo tela' : (muted ? 'Microfone desligado' : 'Conectado')}</span>`;
+        item.className = `voice-user voice-tile${muted ? ' is-muted' : ''}${sharing ? ' is-sharing' : ''}${nick === currentUser ? ' is-me' : ''}`;
+        item.title = nick;
+        item.innerHTML = `
+          <div class="voice-tile-avatar-wrap">
+            <div class="voice-tile-avatar"></div>
+            <span class="voice-tile-mic">${muted ? '🔇' : '🎤'}</span>
+          </div>
+          <div class="voice-tile-name">${escapeHtml(nick)}${nick === currentUser ? ' <span class="voice-tile-you">(você)</span>' : ''}</div>
+          <span class="voice-tile-status">${sharing ? 'Transmitindo tela' : (muted ? 'Microfone desligado' : 'Conectado')}</span>
+        `;
         list.appendChild(item);
+
+        // Foto de perfil (e moldura equipada): usa o cache na hora e confirma pelo perfil logo em seguida.
+        const tileAvatar = item.querySelector('.voice-tile-avatar');
+        tileAvatar.dataset.clustercordAvatarNick = nick;
+        fillVoiceTileAvatar(tileAvatar, nick, usersCache[nick] || (nick === currentUser ? userProfile : null));
+        getUserData(nick).then(data => fillVoiceTileAvatar(tileAvatar, nick, data)).catch(() => {});
       });
     }
 
@@ -2135,18 +2733,21 @@
     function applyScreenSelection() {
       const wraps = document.querySelectorAll('#voice-media .voice-screen-wrap');
       wraps.forEach(wrap => {
-        const selected = !activeScreenSelection || wrap.dataset.screenNick === activeScreenSelection;
+        const selected = (!activeScreenSelection || wrap.dataset.screenNick === activeScreenSelection) && canViewVoiceScreen(wrap.dataset.screenNick);
         wrap.classList.toggle('screen-not-selected', !selected);
       });
 
       document.querySelectorAll('#voice-screen-selector .voice-screen-choice').forEach(button => {
         button.classList.toggle('active', button.dataset.screenNick === activeScreenSelection);
+        button.classList.toggle('is-pending-view', !canViewVoiceScreen(button.dataset.screenNick));
       });
 
       document.querySelectorAll('#voice-audios audio[id^="voice-screen-audio-"]').forEach(audio => {
         const nick = audio.dataset.screenNick || '';
-        audio.muted = !!activeScreenSelection && nick !== activeScreenSelection;
+        audio.muted = (!!activeScreenSelection && nick !== activeScreenSelection) || !canViewVoiceScreen(nick);
       });
+
+      publishVoiceWatching();
     }
 
     function syncScreenSelector(users = []) {
@@ -2183,8 +2784,7 @@
         button.dataset.screenNick = nick;
         button.textContent = nick === currentUser ? '🖥️ Minha tela' : `🖥️ ${nick}`;
         button.addEventListener('click', () => {
-          activeScreenSelection = nick;
-          applyScreenSelection();
+          acceptVoiceWatch(nick);
         });
         selector.appendChild(button);
       });
@@ -2493,6 +3093,7 @@
 
     async function joinVoiceChannel(groupId, channelName) {
       if (!activeChat || activeChat.id !== groupId) return;
+      unlockVoiceAudio();
 
       try {
         if (activeVoiceChannel?.groupId === groupId && activeVoiceChannel?.name === channelName) return;
@@ -2516,6 +3117,14 @@
         isScreenSharing = false;
 
         activeVoiceChannel = { groupId, name: channelName };
+        voiceAwaitingCalibration = true;
+        voiceLastCalibratedSeen = null;
+        voicePrevNicks = null;
+        voicePrevStates = new Map();
+        voiceWatchingPublished = null;
+        voiceWatchAccepted.clear();
+        voiceWatchDismissed.clear();
+        voiceSharersNow = [];
 
         const participantRef = doc(db, "voiceRooms", groupId, "participants", currentUser);
         await setDoc(participantRef, {
@@ -2523,28 +3132,68 @@
           channel: channelName,
           muted: false,
           sharingScreen: false,
-          joinedAt: serverTimestamp()
+          joinedAt: serverTimestamp(),
+          lastSeen: serverTimestamp()
         });
+        startVoiceHeartbeat();
+        playVoiceSound('self-join');
 
         const participantsRef = collection(db, "voiceRooms", groupId, "participants");
 
-        unsubscribeVoiceParticipants = onSnapshot(participantsRef, async (snapshot) => {
+        const processVoiceSnapshot = async (snapshot) => {
+          if (!activeVoiceChannel || activeVoiceChannel.groupId !== groupId || activeVoiceChannel.name !== channelName) return;
+          lastVoiceSnapshot = snapshot;
           const users = [];
           snapshot.forEach(d => {
-            const data = d.data();
+            calibrateVoiceClock(d);
+            if (!isVoiceEntryLive(d)) return;
+            const data = d.data({ serverTimestamps: 'estimate' });
             if (data.channel === channelName) {
               users.push({
                 user: d.id,
                 muted: !!data.muted,
-                sharingScreen: !!data.sharingScreen
+                sharingScreen: !!data.sharingScreen,
+                watching: data.watching || null
               });
             }
           });
 
           const userNicks = users.map(entry => entry.user);
+          lastVoiceLiveKey = [...userNicks].sort().join('|');
+
+          // Sons de entrada/saída de outras pessoas (a primeira leitura é silenciosa).
+          const currentNicks = new Set(userNicks);
+          const currentStates = new Map(users.map(entry => [entry.user, entry]));
+          if (voicePrevNicks) {
+            let someoneJoined = false, someoneLeft = false;
+            let shareStarted = false, watchStarted = false, muteSound = null;
+            currentNicks.forEach(n => { if (n !== currentUser && !voicePrevNicks.has(n)) someoneJoined = true; });
+            voicePrevNicks.forEach(n => { if (n !== currentUser && !currentNicks.has(n)) someoneLeft = true; });
+
+            // Só conta mudança real de estado de quem já estava na call (renovações de presença não mudam nada).
+            currentStates.forEach((entry, n) => {
+              if (n === currentUser) return;
+              const before = voicePrevStates.get(n);
+              if (!before) return;
+              if (entry.sharingScreen && !before.sharingScreen) shareStarted = true;
+              if (entry.watching === currentUser && before.watching !== currentUser) watchStarted = true;
+              if (entry.muted !== before.muted) muteSound = entry.muted ? 'mute' : 'unmute';
+            });
+
+            // No máximo um som por leitura, por prioridade.
+            if (someoneJoined) playVoiceSound('join');
+            else if (someoneLeft) playVoiceSound('leave');
+            else if (shareStarted) playVoiceSound('share-start');
+            else if (watchStarted) playVoiceSound('watch');
+            else if (muteSound) playVoiceSound(muteSound);
+          }
+          voicePrevNicks = currentNicks;
+          voicePrevStates = currentStates;
 
           showVoicePanel(groupId, channelName, users);
+          pruneVoiceWatchState(users);
           syncScreenSelector(users);
+          renderVoiceWatchInvites();
           renderChannels();
 
           // Se o participante parou de transmitir, remova somente o áudio da
@@ -2565,13 +3214,19 @@
           for (const nick of [...voicePeers.keys()]) {
             if (!userNicks.includes(nick)) cleanupVoicePeer(nick);
           }
-        });
+        };
+
+        voiceSnapshotHandler = processVoiceSnapshot;
+        unsubscribeVoiceParticipants = onSnapshot(participantsRef, processVoiceSnapshot);
 
         document.getElementById('active-chat-sub').innerText = `🎙️ Canal de voz: ${channelName}`;
         updateVoiceControls();
         renderChannels();
       } catch (e) {
         console.error("Erro ao entrar no canal de voz:", e);
+        stopVoiceHeartbeat();
+        voiceSnapshotHandler = null;
+        lastVoiceSnapshot = null;
         if (voiceLocalStream) {
           voiceLocalStream.getTracks().forEach(t => t.stop());
           voiceLocalStream = null;
@@ -2589,7 +3244,18 @@
     async function leaveVoiceChannel(showText = true) {
       const previous = activeVoiceChannel;
       if (!previous && !voiceLocalStream && !unsubscribeVoiceParticipants) return;
+      if (previous) playVoiceSound('self-leave');
+      voicePrevNicks = null;
+      voicePrevStates = new Map();
+      voiceWatchingPublished = null;
+      voiceWatchAccepted.clear();
+      voiceWatchDismissed.clear();
+      voiceSharersNow = [];
 
+      stopVoiceHeartbeat();
+      voiceSnapshotHandler = null;
+      lastVoiceSnapshot = null;
+      lastVoiceLiveKey = '';
       try { unsubscribeVoiceParticipants?.(); } catch (e) {}
       unsubscribeVoiceParticipants = null;
 
@@ -2780,7 +3446,7 @@
       try {
         await updateDoc(
           doc(db, 'voiceRooms', activeVoiceChannel.groupId, 'participants', currentUser),
-          fields
+          { ...fields, lastSeen: serverTimestamp() }
         );
       } catch (e) {
         console.error('Erro ao atualizar estado da chamada:', e);
@@ -2819,6 +3485,7 @@
       isMicMuted = !isMicMuted;
       tracks.forEach(track => { track.enabled = !isMicMuted; });
       updateVoiceControls();
+      playVoiceSound(isMicMuted ? 'mute' : 'unmute');
       await updateVoiceParticipantState({ muted: isMicMuted });
     }
 
@@ -2888,6 +3555,7 @@
         createVoiceScreenSurface(currentUser, localScreenStream, { local: true });
         syncScreenSelector([{ user: currentUser, sharingScreen: true }]);
         updateVoiceControls();
+        playVoiceSound('share-start');
         await updateVoiceParticipantState({ sharingScreen: true });
 
         videoTrack.onended = () => {
