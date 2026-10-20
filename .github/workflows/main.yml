@@ -1,32 +1,25 @@
-name: Convert build files to APK and upload to Github Artifacts
-on: push
+name: Gerar APK do Site
+
+on:
+  push:
+    branches: [ "main" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [16.x]
 
     steps:
-    - uses: actions/checkout@v2
-    - name: Use Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v2
-      with:
-        node-version: ${{ matrix.node-version }}
-        cache: 'npm'
-     
-    - run: npm install
-    - run: npm run build
- 
-    - uses: darkshredder/web-to-app-action@main
-      with:
-          build-folder-path: "build/index.html" # Defaults to build, It is the folder where build files or html are stored
-          app-name: "Clustercord!" # Defaults to MyApp
-          output-folder-path: "my-apks" # Defaults to apk/, Where final APK files are created
-    
-    - name: 'Upload Artifact'
-      uses: actions/upload-artifact@v2
-      with:
-        name: Final-apks
-        path: my-apks/ # Should be same as "output-folder-path"
+      - name: Clonar o repositório
+        uses: actions/checkout@v4
+
+      - name: Converter Site em APK
+        uses: darkshredder/web-to-app-action@v1
+        with:
+          app-name: "MeuAplicativo"
+          build-folder-path: "./"
+
+      - name: Salvar o APK gerado (Corrigido para v4)
+        uses: actions/upload-artifact@v4
+        with:
+          name: aplicativo-apk
+          path: apk/
