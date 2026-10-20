@@ -2,7 +2,8 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#0a0a0c">
   <meta name="google-site-verification" content="nOg-l_Mu5sKARprkynpLmxZJYcqVR7DGD5m6SAln58g" />
   <title>Clustercord!</title>
   <link rel="icon" type="image/png" href="image.png">
@@ -6296,6 +6297,7 @@
 
   const MOBILE_QUERY = window.matchMedia('(max-width: 700px)');
   let displayedNick = null;
+  let mobileProfileRequested = false;
 
   const safeArray = (value) => Array.isArray(value) ? value : [];
 
@@ -6334,7 +6336,12 @@
     mutualsEl.textContent = String(getMutualConnections(data));
     coinsEl.textContent = formatCoins(data.clustercoins);
 
-    panel.classList.add('profile-visible');
+    /* Celular: o perfil é tela cheia, então só abre quando a pessoa toca no nome
+       do cabeçalho (ou se já estava aberto). Ao entrar na conversa vai direto ao chat.
+       No PC continua aparecendo como painel lateral automaticamente. */
+    if (!MOBILE_QUERY.matches || mobileProfileRequested || panel.classList.contains('profile-visible')) {
+      panel.classList.add('profile-visible');
+    }
   };
 
   const openProfileForActiveDirect = async () => {
@@ -6377,7 +6384,8 @@
     if (!MOBILE_QUERY.matches) return;
     event?.preventDefault?.();
     event?.stopPropagation?.();
-    openProfileForActiveDirect();
+    mobileProfileRequested = true;
+    openProfileForActiveDirect().finally(() => { mobileProfileRequested = false; });
   };
 
   activeName.addEventListener('click', openFromHeader);
@@ -6927,5 +6935,993 @@
 
   window.addEventListener('resize', syncGroupLayout);
   syncGroupLayout();
+})();
+</script>
+
+<!-- ===================================================================
+     MOBILE V4.3 (ADITIVO): layout melhor adaptado ao celular / APK.
+     Só atua em telas de até 700px. Não altera dados, Firebase, voz ou
+     qualquer função existente: apenas estilos e uma barra de chamada.
+     =================================================================== -->
+<style id="clustercord-mobile-v43">
+  #clustercord-call-bar {
+    display: none;
+  }
+
+  @media (max-width: 700px) {
+    /* ---------- Toque e tela cheia (APK) ---------- */
+    html, body {
+      overscroll-behavior: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    button, [role="button"], .contact-item, .channel-tab, .voice-control-btn, .close-modal {
+      touch-action: manipulation;
+    }
+
+    /* Na lista de conversas o chat fica escondido (antes, ao voltar da lista de
+       canais, o chat continuava aparecendo ao lado da lista, dividindo a tela). */
+    #app-screen:not(.mobile-chat-open) .chat-area {
+      display: none !important;
+    }
+
+    #active-chat-name:focus {
+      outline: none;
+    }
+
+    /* Respeita entalhe/barra de status quando o app roda em tela cheia. */
+    #app-screen {
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-left: env(safe-area-inset-left, 0px);
+      padding-right: env(safe-area-inset-right, 0px);
+    }
+
+    #login-screen {
+      padding-top: max(1rem, env(safe-area-inset-top, 0px));
+      padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+      /* Com o teclado aberto a tela encolhe: o formulário precisa rolar e
+         nunca ficar cortado (botão Entrar sempre alcançável). */
+      overflow-y: auto;
+      align-items: safe center;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* ---------- Áreas de toque maiores ---------- */
+    #app-screen .btn-small {
+      min-height: 40px;
+    }
+
+    #app-screen #header-actions .btn-small {
+      min-height: 34px;
+    }
+
+    .close-modal {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 44px;
+      min-height: 44px;
+      margin: -0.6rem -0.6rem -0.6rem 0;
+    }
+
+    .clusterstore-item-card + .clusterstore-item-card {
+      margin-top: 0.8rem;
+    }
+
+    /* ---------- Lista de canais do grupo ---------- */
+    #app-screen.clustercord-group-layout.mobile-channel-picker .voice-channel-title {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      min-width: 0;
+    }
+
+    #app-screen.clustercord-group-layout.mobile-channel-picker .voice-channel-title > span:first-child {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #app-screen.clustercord-group-layout.mobile-channel-picker .voice-channel-count {
+      margin-left: auto;
+      min-width: 22px;
+      height: 22px;
+      padding: 0 0.4rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: rgba(87, 211, 140, 0.14);
+      color: #57d38c;
+      font-size: 0.72rem;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+
+    #app-screen.clustercord-group-layout.mobile-channel-picker .voice-channel-participants {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      margin: 0.4rem 0 0.1rem 1.6rem;
+      min-width: 0;
+    }
+
+    #app-screen.clustercord-group-layout.mobile-channel-picker .voice-channel-participant {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      min-width: 0;
+      padding: 0.2rem 0.25rem;
+      color: var(--text-muted);
+      font-size: 0.82rem;
+      line-height: 1.2;
+    }
+
+    #app-screen.clustercord-group-layout.mobile-channel-picker .voice-channel-participant-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #57d38c;
+      flex: 0 0 8px;
+      box-shadow: 0 0 5px rgba(87, 211, 140, 0.35);
+    }
+
+    #app-screen.clustercord-group-layout.mobile-channel-picker .voice-channel-participant-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #app-screen.clustercord-group-layout.mobile-channel-picker .voice-channel-participant-muted {
+      margin-left: auto;
+      font-size: 0.72rem;
+      flex-shrink: 0;
+    }
+
+    /* ---------- Controles da chamada: uma linha só ---------- */
+    #app-screen.clustercord-group-layout #voice-controls.voice-controls:not(.hidden) {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.4rem;
+      margin-top: 0;
+      padding: 0.55rem 0.65rem max(0.65rem, env(safe-area-inset-bottom, 0px));
+      border-top: 1px solid var(--border-color);
+      background: var(--bg-panel);
+    }
+
+    #app-screen.clustercord-group-layout.mobile-channel-picker #voice-controls.voice-controls:not(.hidden) {
+      grid-column: 1;
+      grid-row: 3;
+    }
+
+    #app-screen #voice-controls .voice-control-btn {
+      min-height: 46px;
+      padding: 0.4rem 0.3rem;
+      border-radius: 10px;
+      font-size: 0.72rem;
+      line-height: 1.15;
+      text-align: center;
+      white-space: normal;
+    }
+
+    #app-screen #voice-controls .voice-status {
+      grid-column: 1 / -1;
+      margin: 0;
+      font-size: 0.72rem;
+      text-align: center;
+    }
+
+    /* ---------- Painel da chamada ---------- */
+    .voice-panel {
+      padding: 0.4rem;
+      gap: 0.7rem;
+    }
+
+    .voice-panel-card {
+      width: 100%;
+      padding: 0.9rem;
+    }
+
+    .voice-panel-card .voice-users {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      justify-content: stretch;
+      gap: 0.6rem;
+      margin: 1rem 0 0.9rem;
+    }
+
+    .voice-user.voice-tile {
+      padding: 0.9rem 0.5rem 0.75rem;
+    }
+
+    .voice-user.voice-tile:only-child {
+      grid-column: 1 / -1;
+      justify-self: center;
+      width: min(190px, 100%);
+    }
+
+    .voice-tile-avatar-wrap,
+    .voice-tile-avatar {
+      width: 56px;
+      height: 56px;
+    }
+
+    .voice-tile-avatar {
+      font-size: 1.35rem;
+    }
+
+    .voice-tile-mic {
+      width: 22px;
+      height: 22px;
+      font-size: 0.68rem;
+    }
+
+    .voice-panel-card #btn-leave-voice-panel {
+      width: 100%;
+    }
+
+    .voice-watch-invites {
+      width: 100%;
+    }
+
+    /* ---------- Barra "Em chamada" (aparece na lista de conversas) ---------- */
+    #clustercord-call-bar.visible {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-shrink: 0;
+      padding: 0.6rem 0.75rem max(0.6rem, env(safe-area-inset-bottom, 0px));
+      background: rgba(87, 211, 140, 0.1);
+      border-top: 1px solid rgba(87, 211, 140, 0.35);
+    }
+
+    #clustercord-call-bar .call-bar-info {
+      flex: 1;
+      min-width: 0;
+      cursor: pointer;
+    }
+
+    #clustercord-call-bar .call-bar-title {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #57d38c;
+      white-space: nowrap;
+    }
+
+    #clustercord-call-bar .call-bar-status {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #clustercord-call-bar .call-bar-btn {
+      flex: 0 0 auto;
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-input);
+      color: var(--text-main);
+      font-size: 1.05rem;
+      cursor: pointer;
+    }
+
+    #clustercord-call-bar .call-bar-btn.danger {
+      background: var(--accent-danger);
+      border-color: var(--accent-danger);
+      color: #fff;
+    }
+  }
+</style>
+
+<script>
+(() => {
+  'use strict';
+
+  const app = document.getElementById('app-screen');
+  const sidebar = app?.querySelector('.sidebar');
+  if (!app || !sidebar) return;
+
+  const MOBILE_QUERY = window.matchMedia('(max-width: 700px)');
+
+  /* ---------- Voltar dentro de um grupo: canal -> lista de canais -> conversas ---------- */
+  document.addEventListener('click', event => {
+    const back = event.target.closest?.('#clustercord-mobile-back');
+    if (!back || !MOBILE_QUERY.matches) return;
+
+    if (app.classList.contains('clustercord-group-layout') && app.classList.contains('mobile-channel-chat')) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      app.classList.remove('mobile-channel-chat');
+      app.classList.add('mobile-channel-picker');
+    }
+  }, true);
+
+  /* ---------- Botão "voltar" do Android (para o empacotador do APK) ----------
+     Retorna true se tratou o voltar (fechou modal/loja ou voltou uma tela);
+     retorna false quando já está na lista de conversas (aí o APK pode fechar). */
+  window.__clustercordMobileBack = () => {
+    if (!MOBILE_QUERY.matches) return false;
+
+    const openModals = [...document.querySelectorAll('.modal-overlay:not(.hidden)')];
+    const topModal = openModals[openModals.length - 1];
+    if (topModal) {
+      const close = topModal.querySelector('.close-modal');
+      if (close) { close.click(); return true; }
+    }
+
+    const store = document.getElementById('clusterstore-view');
+    if (store && !store.classList.contains('hidden')) {
+      document.getElementById('clusterstore-back')?.click();
+      return true;
+    }
+
+    if (app.classList.contains('mobile-chat-open')) {
+      document.getElementById('clustercord-mobile-back')?.click();
+      return true;
+    }
+
+    return false;
+  };
+
+  document.addEventListener('backbutton', event => {
+    if (window.__clustercordMobileBack()) event.preventDefault();
+  }, false);
+
+  /* ---------- Barra "Em chamada" na lista de conversas ----------
+     Usa os botões que já existem (microfone e sair da voz): só repassa o toque. */
+  const voiceControls = document.getElementById('voice-controls');
+  const voiceStatus = document.getElementById('voice-status');
+  const muteButton = document.getElementById('btn-mute-mic');
+  const leaveButton = document.getElementById('btn-leave-voice');
+  if (!voiceControls || !muteButton || !leaveButton) return;
+
+  const bar = document.createElement('div');
+  bar.id = 'clustercord-call-bar';
+  bar.innerHTML = `
+    <div class="call-bar-info" role="button" aria-label="Voltar para a chamada">
+      <div class="call-bar-title">🎙️ Em chamada</div>
+      <div class="call-bar-status"></div>
+    </div>
+    <button type="button" class="call-bar-btn" data-call-bar="mute" aria-label="Ligar ou desligar microfone">🎙️</button>
+    <button type="button" class="call-bar-btn danger" data-call-bar="leave" aria-label="Sair da chamada">📞</button>
+  `;
+  sidebar.appendChild(bar);
+
+  const barStatus = bar.querySelector('.call-bar-status');
+  const barMute = bar.querySelector('[data-call-bar="mute"]');
+
+  const syncCallBar = () => {
+    const inCall = !voiceControls.classList.contains('hidden');
+    bar.classList.toggle('visible', inCall);
+    if (!inCall) return;
+    barStatus.textContent = (voiceStatus?.textContent || 'Conectado').trim();
+    barMute.textContent = muteButton.classList.contains('active') ? '🔇' : '🎙️';
+  };
+
+  bar.querySelector('.call-bar-info').addEventListener('click', () => {
+    if (!MOBILE_QUERY.matches) return;
+    app.classList.add('mobile-chat-open');
+    if (app.classList.contains('clustercord-group-layout')) {
+      app.classList.remove('mobile-channel-picker');
+      app.classList.add('mobile-channel-chat');
+    }
+  });
+  barMute.addEventListener('click', () => muteButton.click());
+  bar.querySelector('[data-call-bar="leave"]').addEventListener('click', () => leaveButton.click());
+
+  const observer = new MutationObserver(syncCallBar);
+  observer.observe(voiceControls, { attributes: true, attributeFilter: ['class'] });
+  observer.observe(muteButton, { attributes: true, attributeFilter: ['class'] });
+  if (voiceStatus) observer.observe(voiceStatus, { childList: true, characterData: true, subtree: true });
+  syncCallBar();
+})();
+</script>
+
+<!-- ===================================================================
+     MOBILE V4.4 (ADITIVO) - visual inspirado no Discord para celular / APK.
+     Só atua em telas de até 700px. Nada de dados, Firebase, voz, loja ou
+     lógica foi alterado: são apenas estilos + uma barra de abas que repassa
+     o toque para os botões que já existem.
+     =================================================================== -->
+<style id="clustercord-mobile-discord-v44">
+  /* A barra de abas só existe no celular. */
+  #clustercord-tabbar { display: none; }
+  #cc-channel-label { display: none; }
+
+  @keyframes cc-sheet-up {
+    from { transform: translateY(32px); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
+  }
+
+  @media (max-width: 700px) {
+
+    /* ================= LOGIN ================= */
+    #login-screen .login-card {
+      max-width: 100%;
+      width: calc(100% - 1.5rem);
+      padding: 1.6rem 1.25rem 1.25rem;
+      border-radius: 22px;
+      background: rgba(18, 19, 24, 0.88);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+    }
+
+    #login-screen .logo-title { font-size: 2.2rem; }
+
+    .input-group input {
+      min-height: 50px;
+      border-radius: 12px;
+      font-size: 16px;
+    }
+
+    .btn-main {
+      min-height: 52px;
+      border-radius: 14px;
+      font-size: 1rem;
+    }
+
+    #auth-mode-toggle {
+      padding: 4px;
+      gap: 4px;
+      background: var(--bg-dark);
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+    }
+
+    #auth-mode-toggle button {
+      min-height: 42px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+    }
+
+    #auth-mode-toggle button.active {
+      background: rgba(0, 136, 255, 0.2);
+      color: var(--text-main);
+    }
+
+    /* ================= LISTA DE CONVERSAS (INÍCIO) ================= */
+    #app-screen .sidebar { background: var(--bg-panel); }
+
+    #app-screen .sidebar-header {
+      padding: 0.8rem 1rem 0.55rem;
+      border-bottom: 0;
+      gap: 0.75rem;
+    }
+
+    #app-screen .sidebar-header .user-profile {
+      flex: 1;
+      min-width: 0;
+      gap: 0.75rem;
+    }
+
+    #app-screen .sidebar-header .avatar { width: 44px; height: 44px; }
+    #app-screen .sidebar-header .user-name { font-size: 1.05rem; font-weight: 700; }
+    #app-screen .sidebar-header .user-bio { font-size: 0.78rem; }
+
+    #app-screen #btn-logout {
+      min-height: 36px;
+      padding: 0 1rem;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid var(--border-color);
+      font-size: 0.78rem;
+    }
+
+    #app-screen .actions-bar {
+      padding: 0.3rem 1rem 0.8rem;
+      gap: 0.6rem;
+      border-bottom: 0;
+    }
+
+    #app-screen .search-box {
+      align-items: center;
+      gap: 0.5rem;
+      padding: 4px 4px 4px 14px;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: 14px;
+    }
+
+    #app-screen .search-box:focus-within { border-color: var(--accent-blue); }
+
+    #app-screen .search-box input {
+      padding: 0.55rem 0;
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      font-size: 16px;
+    }
+
+    #app-screen .search-box .btn-small {
+      min-height: 38px;
+      padding: 0 1.05rem;
+      border-radius: 10px;
+    }
+
+    #app-screen .clusterstore-sidebar-button {
+      min-height: 46px;
+      border-radius: 14px;
+    }
+
+    #app-screen.cc-has-tabbar #btn-clusterstore { display: none; }
+
+    #app-screen #btn-create-group-modal {
+      min-height: 46px;
+      border-radius: 14px;
+      background: transparent;
+      border: 1px dashed rgba(0, 136, 255, 0.5);
+      color: #65b9ff;
+      font-size: 0.88rem;
+      font-weight: 700;
+    }
+
+    #app-screen #btn-create-group-modal:active { background: rgba(0, 136, 255, 0.12); }
+
+    #app-screen .contact-list { padding: 0 0 0.5rem; }
+
+    #app-screen .contact-list .section-title {
+      padding: 0.95rem 1rem 0.35rem;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      text-transform: none;
+    }
+
+    #app-screen .contact-item {
+      min-height: 66px;
+      margin: 0;
+      padding: 0.55rem 1rem;
+      gap: 0.85rem;
+      border-radius: 0;
+      transition: background 0.12s;
+    }
+
+    #app-screen .contact-item:hover,
+    #app-screen .contact-item.active { background: transparent; }
+    #app-screen .contact-item:active { background: var(--bg-input); }
+
+    #app-screen .contact-item .avatar {
+      width: 48px;
+      height: 48px;
+      font-size: 1.1rem;
+    }
+
+    /* Grupos viram "ícone de servidor" arredondado, como no Discord. */
+    #app-screen [id^="group-item-"] .avatar {
+      border-radius: 16px;
+      font-size: 1.3rem;
+    }
+
+    #app-screen .contact-item .user-info { flex: 1; min-width: 0; gap: 2px; }
+    #app-screen .contact-item .user-name { font-size: 1rem; font-weight: 600; }
+    #app-screen .contact-item .user-bio { font-size: 0.84rem; }
+
+    #app-screen .contact-item .unread-badge {
+      min-width: 22px;
+      height: 22px;
+      border-radius: 11px;
+      font-size: 0.75rem;
+    }
+
+    /* ---------- Barra de abas inferior ---------- */
+    #app-screen.cc-has-tabbar #clustercord-tabbar {
+      display: flex;
+      flex-shrink: 0;
+      align-items: stretch;
+      padding: 0.3rem 0.5rem max(0.3rem, env(safe-area-inset-bottom, 0px));
+      background: var(--bg-dark);
+      border-top: 1px solid var(--border-color);
+    }
+
+    #clustercord-tabbar .cc-tab {
+      flex: 1;
+      min-width: 0;
+      min-height: 56px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      padding: 0;
+      background: transparent;
+      border: 0;
+      color: var(--text-muted);
+      font-size: 0.7rem;
+      font-weight: 600;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    #clustercord-tabbar .cc-tab-ico {
+      width: 56px;
+      height: 30px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 15px;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    #clustercord-tabbar .cc-tab-ico svg {
+      width: 24px;
+      height: 24px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.9;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    #clustercord-tabbar .cc-tab[aria-current="true"] { color: var(--text-main); }
+
+    #clustercord-tabbar .cc-tab[aria-current="true"] .cc-tab-ico {
+      background: rgba(0, 136, 255, 0.2);
+      color: #65b9ff;
+    }
+
+    #clustercord-tabbar .cc-tab:active .cc-tab-ico { background: var(--bg-input); }
+
+    /* Com a barra de abas embaixo, a faixa "Em chamada" não precisa da margem do gesto. */
+    #app-screen.cc-has-tabbar #clustercord-call-bar.visible {
+      padding-bottom: 0.6rem;
+      background: rgba(87, 211, 140, 0.12);
+    }
+
+    /* ================= CABEÇALHO DO CHAT ================= */
+    #app-screen .chat-header {
+      flex-wrap: wrap;
+      min-height: 56px;
+      padding: 0.35rem 0.75rem 0.35rem 0.3rem;
+      gap: 0.15rem 0.2rem;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border-color);
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+    }
+
+    #clustercord-mobile-back {
+      width: 44px;
+      height: 44px;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      font-size: 0;
+      position: relative;
+    }
+
+    #clustercord-mobile-back::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      margin: auto;
+      width: 24px;
+      height: 24px;
+      background-color: var(--text-main);
+      -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M15.5 4.5L8 12l7.5 7.5' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+              mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M15.5 4.5L8 12l7.5 7.5' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+    }
+
+    #clustercord-mobile-back:active { background: var(--bg-input); }
+
+    #app-screen .chat-header-info { gap: 0.65rem; }
+    #active-avatar { width: 36px; height: 36px; font-size: 0.95rem; }
+    #active-chat-name { font-size: 1.02rem; font-weight: 700 !important; }
+    #active-chat-sub { font-size: 0.75rem !important; }
+
+    #cc-channel-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #app-screen.cc-channel-label-on.mobile-channel-chat #cc-channel-label { display: block; }
+    #app-screen.cc-channel-label-on.mobile-channel-chat #active-chat-sub { display: none; }
+
+    /* Ações (Gerenciar / Sair / Bloquear) numa faixa própria, rolando de lado. */
+    #app-screen #header-actions {
+      flex: 1 0 100%;
+      max-width: 100%;
+      flex-wrap: nowrap;
+      justify-content: flex-start;
+      padding: 0.15rem 0.1rem 0.35rem 0.5rem;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+    }
+
+    #app-screen #header-actions::-webkit-scrollbar { display: none; }
+    #app-screen #header-actions:empty { display: none; }
+    #app-screen.clustercord-group-layout.mobile-channel-chat #header-actions { display: none; }
+
+    #app-screen #header-actions .btn-small {
+      flex: 0 0 auto;
+      min-height: 36px;
+      padding: 0 0.95rem;
+      border-radius: 999px;
+      background: var(--bg-input);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      font-size: 0.78rem;
+    }
+
+    /* ================= LISTA DE CANAIS DO GRUPO ================= */
+    #app-screen.clustercord-group-layout.mobile-channel-picker .channels-bar { padding: 0.5rem 0.6rem 1rem; }
+
+    #app-screen.clustercord-group-layout.mobile-channel-picker .channel-tab {
+      min-height: 48px;
+      padding: 0.7rem 0.9rem;
+      border-radius: 12px;
+      color: var(--text-muted);
+      font-size: 1rem;
+      font-weight: 500;
+    }
+
+    #app-screen.clustercord-group-layout.mobile-channel-picker .channel-tab:active { background: var(--bg-input); }
+
+    #app-screen.clustercord-group-layout.mobile-channel-picker .channel-tab.active {
+      background: rgba(0, 136, 255, 0.14);
+      color: var(--text-main);
+    }
+
+    #app-screen.clustercord-group-layout.mobile-channel-picker .channel-tab .unread-badge {
+      margin-left: auto;
+      min-width: 22px;
+      height: 22px;
+      border-radius: 11px;
+    }
+
+    #app-screen.clustercord-group-layout.mobile-channel-picker .clustercord-channel-section-label {
+      padding: 0.95rem 0.9rem 0.35rem;
+      font-size: 0.74rem;
+    }
+
+    /* ================= MENSAGENS (estilo Discord: sem balões) ================= */
+    #app-screen .chat-messages {
+      padding: 0.5rem 0 0.75rem;
+      gap: 0;
+      background: var(--bg-chat);
+    }
+
+    #app-screen .message-wrapper,
+    #app-screen .message-wrapper.sent,
+    #app-screen .message-wrapper.received {
+      align-self: stretch;
+      flex-direction: row;
+      width: 100%;
+      max-width: 100%;
+      gap: 0.75rem;
+      padding: 0.35rem 1rem;
+    }
+
+    #app-screen .message-wrapper:active { background: rgba(255, 255, 255, 0.03); }
+
+    #app-screen .msg-avatar {
+      width: 40px;
+      height: 40px;
+      margin-top: 2px;
+    }
+
+    #app-screen .message-content { flex: 1; min-width: 0; }
+
+    #app-screen .msg-author,
+    #app-screen .message-wrapper.sent .msg-author {
+      margin-bottom: 1px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      text-align: left;
+      color: var(--text-main);
+    }
+
+    #app-screen .message-wrapper.sent .msg-author { color: #65b9ff; }
+
+    #app-screen .message-wrapper .message-bubble,
+    #app-screen .message-wrapper.sent .message-bubble,
+    #app-screen .message-wrapper.received .message-bubble {
+      padding: 0;
+      border-radius: 0;
+      background: transparent;
+      color: var(--text-main);
+      font-size: 0.97rem;
+      font-weight: 400;
+      line-height: 1.4;
+    }
+
+    #app-screen .message-wrapper .message-time,
+    #app-screen .message-wrapper.sent .message-time,
+    #app-screen .message-wrapper.received .message-time {
+      margin-top: 0.3rem;
+      font-size: 0.68rem;
+      text-align: left;
+      color: var(--text-muted);
+      opacity: 0.75;
+    }
+
+    #app-screen .message-wrapper .reply-quote,
+    #app-screen .message-wrapper.sent .reply-quote,
+    #app-screen .message-wrapper.received .reply-quote {
+      padding: 0.4rem 0.65rem;
+      border-left: 3px solid var(--accent-blue);
+      border-radius: 4px 8px 8px 4px;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    #app-screen .message-gif { border-radius: 12px; }
+
+    #app-screen .message-date-separator { margin: 0.9rem 1rem 0.4rem; }
+
+    /* ================= BARRA DE ESCREVER ================= */
+    #app-screen .chat-input-area {
+      align-items: center;
+      padding: 0.5rem 0.6rem max(0.55rem, env(safe-area-inset-bottom, 0px));
+      gap: 0.5rem;
+      background: var(--bg-chat);
+      border-top: 0;
+    }
+
+    #app-screen .chat-input-area .chat-gif-plus {
+      flex: 0 0 44px;
+      width: 44px;
+      height: 44px;
+      border: 0;
+      border-radius: 50%;
+      background: var(--bg-input);
+      font-size: 26px;
+    }
+
+    #app-screen .chat-input-area input#message-input {
+      height: 44px;
+      padding: 0 1.1rem;
+      border: 0;
+      border-radius: 22px;
+      background: var(--bg-input);
+      font-size: 16px;
+    }
+
+    #app-screen .chat-input-area #btn-send {
+      position: relative;
+      flex: 0 0 44px;
+      width: 44px;
+      height: 44px;
+      min-height: 44px;
+      padding: 0;
+      border-radius: 50%;
+      font-size: 0;
+      transition: opacity 0.15s;
+    }
+
+    #app-screen .chat-input-area #btn-send::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      margin: auto;
+      width: 22px;
+      height: 22px;
+      background-color: currentColor;
+      -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3.4 20.4L21.5 12 3.4 3.6 3.3 10.1 15 12 3.3 13.9z'/%3E%3C/svg%3E") center / contain no-repeat;
+              mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3.4 20.4L21.5 12 3.4 3.6 3.3 10.1 15 12 3.3 13.9z'/%3E%3C/svg%3E") center / contain no-repeat;
+    }
+
+    #app-screen .chat-input-area:has(#message-input:placeholder-shown) #btn-send { opacity: 0.45; }
+
+    /* ================= CONTROLES DE VOZ / PAINEL ================= */
+    #app-screen.clustercord-group-layout #voice-controls.voice-controls:not(.hidden) {
+      background: var(--bg-chat);
+      border-top: 1px solid var(--border-color);
+    }
+
+    #app-screen #voice-controls .voice-control-btn { border-radius: 14px; }
+
+    .voice-panel { justify-content: flex-start; }
+    .voice-panel-card { border-radius: 20px; }
+
+    /* ================= JANELAS (viram "gavetas" de baixo para cima) ================= */
+    .modal-overlay {
+      height: 100dvh;
+      padding: 0;
+      align-items: flex-end;
+      background: rgba(0, 0, 0, 0.62);
+    }
+
+    .modal-overlay > .modal {
+      width: 100%;
+      max-width: none;
+      max-height: 88dvh;
+      overflow-y: auto;
+      padding: 0.8rem 1.1rem max(1.2rem, env(safe-area-inset-bottom, 0px));
+      border: 0;
+      border-top: 1px solid var(--border-color);
+      border-radius: 22px 22px 0 0;
+      animation: cc-sheet-up 0.22s ease-out;
+    }
+
+    .modal-overlay > .modal::before {
+      content: '';
+      display: block;
+      width: 40px;
+      height: 4px;
+      margin: 0 auto 0.9rem;
+      border-radius: 2px;
+      background: var(--border-color);
+    }
+
+    .modal-header { font-size: 1.15rem; }
+
+    #message-context-menu { border-radius: 14px !important; }
+  }
+
+  @media (max-width: 700px) and (prefers-reduced-motion: reduce) {
+    .modal-overlay > .modal { animation: none; }
+  }
+</style>
+
+<script>
+(() => {
+  'use strict';
+
+  /* Barra de abas (Conversas / Loja / Perfil) e rótulo do canal no cabeçalho.
+     Só repassa toques para botões que já existem; não altera dados nem lógica. */
+  const app = document.getElementById('app-screen');
+  const sidebar = app?.querySelector('.sidebar');
+  const list = document.getElementById('contact-list');
+  const storeButton = document.getElementById('btn-clusterstore');
+  const profileButton = document.getElementById('my-profile-btn');
+  if (!app || !sidebar || !list) return;
+
+  document.getElementById('btn-send')?.setAttribute('aria-label', 'Enviar mensagem');
+
+  if (storeButton && profileButton) {
+    const icons = {
+      chats: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>',
+      store: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1 12H6L5 8z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>',
+      profile: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>'
+    };
+
+    const tabbar = document.createElement('nav');
+    tabbar.id = 'clustercord-tabbar';
+    tabbar.setAttribute('aria-label', 'Navegação principal');
+    tabbar.innerHTML = `
+      <button type="button" class="cc-tab" data-tab="chats" aria-current="true"><span class="cc-tab-ico">${icons.chats}</span>Conversas</button>
+      <button type="button" class="cc-tab" data-tab="store"><span class="cc-tab-ico">${icons.store}</span>Loja</button>
+      <button type="button" class="cc-tab" data-tab="profile"><span class="cc-tab-ico">${icons.profile}</span>Perfil</button>
+    `;
+    sidebar.appendChild(tabbar);
+    app.classList.add('cc-has-tabbar');
+
+    tabbar.addEventListener('click', event => {
+      const tab = event.target.closest?.('.cc-tab');
+      if (!tab) return;
+      const kind = tab.dataset.tab;
+      if (kind === 'chats') list.scrollTo({ top: 0, behavior: 'smooth' });
+      if (kind === 'store') storeButton.click();
+      if (kind === 'profile') profileButton.click();
+    });
+  }
+
+  /* Rótulo "# canal" no cabeçalho do chat de grupo (só visual, lido da lista de canais). */
+  const channelsBar = document.getElementById('channels-bar');
+  const sub = document.getElementById('active-chat-sub');
+  if (channelsBar && sub) {
+    const label = document.createElement('div');
+    label.id = 'cc-channel-label';
+    sub.insertAdjacentElement('afterend', label);
+
+    const syncLabel = () => {
+      const active = channelsBar.querySelector('.channel-tab.active:not(.voice-channel)');
+      const text = active ? active.textContent.replace(/\s+/g, ' ').trim().replace(/\s\d+$/, '') : '';
+      label.textContent = text;
+      app.classList.toggle('cc-channel-label-on', !!text && !channelsBar.classList.contains('hidden'));
+    };
+
+    new MutationObserver(syncLabel).observe(channelsBar, {
+      childList: true, subtree: true, attributes: true, attributeFilter: ['class']
+    });
+    syncLabel();
+  }
 })();
 </script>
