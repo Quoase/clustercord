@@ -664,6 +664,13 @@
       display: none;
     }
 
+    /* Tela da call persistente: fica montada, só alterna entre visível/escondida. */
+    #chat-messages > .voice-panel { display: none; }
+    #chat-messages.voice-view-active > .voice-panel { display: flex; }
+    #chat-messages.voice-view-active > :not(.voice-panel) { display: none !important; }
+    #voice-status.voice-status-link { cursor: pointer; text-decoration: underline; }
+    #voice-status.voice-status-link::after { content: ' • voltar para a call'; }
+
     .voice-media {
       width: min(760px, 100%);
       display: grid;
@@ -1552,6 +1559,13 @@
     const voicePeers = new Map();
     const voiceCandidateQueues = new Map();
 
+    // ===== Tela da call persistente (V4.9.1) =====
+    // A tela da call fica sempre montada dentro de #chat-messages (apenas escondida por CSS
+    // quando a pessoa está em outro chat), então <video>/<audio> das conexões nunca são destruídos.
+    let voiceViewActive = false;       // true = tela da call visível no lugar das mensagens
+    let voiceJoinShowPending = false;  // mostra a tela da call quando o 1º retorno do canal chegar
+    let voiceCallGroupData = null;     // dados do grupo da call (para voltar para ela de outro chat)
+
     // ===== Presença de voz: heartbeat + filtro de participantes "fantasmas" (V4.2) =====
     // Firestore não tem "onDisconnect". Se a aba fecha de forma brusca, o registro da
     // pessoa ficava na coleção para sempre. Agora cada participante renova `lastSeen`
@@ -2415,6 +2429,7 @@
     }
 
     async function selectDirectChat(targetNick) {
+      setVoiceViewActive(false); // a call continua conectada; só saímos da tela dela
       stopGroupVoicePresence();
       activeChat = { type: 'direct', id: targetNick, name: targetNick };
       document.getElementById('channels-bar').classList.add('hidden');
@@ -2487,8 +2502,15 @@
       document.getElementById('active-chat-name').innerText = 'Selecione uma conversa';
       document.getElementById('active-chat-sub').innerText = '';
       document.getElementById('header-actions').innerHTML = '';
-      chatMessagesEl.innerHTML = '';
+      clearChatMessages();
       renderSidebar();
+    }
+
+    // Limpa as mensagens sem destruir a tela da call (que precisa continuar montada).
+    function clearChatMessages() {
+      [...chatMessagesEl.children].forEach(child => {
+        if (!child.classList.contains('voice-panel')) child.remove();
+      });
     }
 
     function isClustercordCreator(nick = currentUser) {
@@ -2529,7 +2551,7 @@
     }
 
     async function selectGroupChat(groupId, groupData) {
-      await leaveVoiceChannel(false);
+      setVoiceViewActive(false); // a call continua conectada; só saímos da tela dela
       activeChat = { type: 'group', id: groupId, name: groupData.name, data: groupData };
       lastRenderedPresenceKey = null;
       watchGroupVoicePresence(groupId);
@@ -2613,7 +2635,7 @@
       window.__clustercordApplyFrame?.(resetActiveAvatar, null);
       document.getElementById('header-actions').innerHTML = '';
       document.getElementById('channels-bar').classList.add('hidden');
-      chatMessagesEl.innerHTML = '';
+      clearChatMessages();
       renderSidebar();
     }
 
@@ -2642,18 +2664,19 @@
       bar.classList.remove('hidden');
       bar.innerHTML = '';
 
+      const viewingCall = voiceViewActive && !!activeVoiceChannel && activeVoiceChannel.groupId === activeChat.id;
       const channels = activeChat.data.channels || ['geral'];
       channels.forEach(ch => {
         const tab = document.createElement('div');
-        tab.className = `channel-tab ${activeChannel === ch && !activeVoiceChannel ? 'active' : ''}`;
+        tab.className = `channel-tab ${activeChannel === ch && !viewingCall ? 'active' : ''}`;
 
         const count = getUnreadCount(channelUnreadKey(activeChat.id, ch));
         tab.innerHTML = `<span># ${escapeHtml(ch)}</span>${createUnreadBadge(count)}`;
 
         tab.onclick = async () => {
-          await leaveVoiceChannel(false);
-          activeVoiceChannel = null;
+          setVoiceViewActive(false); // não desconecta da call: só mostra o chat de texto
           activeChannel = ch;
+          restoreGroupHeaderSub();
           await marcarComoLido(channelUnreadKey(activeChat.id, ch));
           renderChannels();
           renderSidebar();
@@ -2665,7 +2688,7 @@
       const voiceChannels = activeChat.data.voiceChannels || [];
       voiceChannels.forEach(ch => {
         const tab = document.createElement('div');
-        tab.className = `channel-tab voice-channel ${activeVoiceChannel?.name === ch ? 'active' : ''}`;
+        tab.className = `channel-tab voice-channel ${viewingCall && activeVoiceChannel?.name === ch ? 'active' : ''}`;
 
         const participants = groupVoicePresence.get(ch) || [];
         const namesHtml = participants.length
@@ -2807,12 +2830,71 @@
       if (data) window.__clustercordApplyFrame?.(el, data);
     }
 
-    function showVoicePanel(groupId, channelName, users = []) {
-      const existingPanel = chatMessagesEl.querySelector('.voice-panel');
+    // ===== Alternância entre a tela da call e os chats (V4.9.1) =====
+    function setVoiceViewActive(active) {
+      active = !!active;
+      if (!active) voiceJoinShowPending = false;
+      voiceViewActive = active;
+      chatMessagesEl.classList.toggle('voice-view-active', active);
+      if (active) resumeVoiceMedia();
+      updateVoiceControls();
+    }
 
-      if (!existingPanel || existingPanel.dataset.groupId !== String(groupId) || existingPanel.dataset.channelName !== String(channelName)) {
-        chatMessagesEl.innerHTML = `
-          <div class="voice-panel">
+    // Garante que vídeos/áudios da call continuem tocando ao reexibir a tela.
+    function resumeVoiceMedia() {
+      document.querySelectorAll('#voice-media video, #voice-audios audio').forEach(el => {
+        if (el.srcObject && el.paused) el.play().catch(() => {});
+      });
+    }
+
+    function restoreGroupHeaderSub() {
+      if (activeChat?.type !== 'group') return;
+      const sub = document.getElementById('active-chat-sub');
+      if (sub) sub.innerText = `Dono: ${activeChat.data.owner}${isClustercordCreator() ? ' • Criador' : ''}`;
+    }
+
+    // Mostra a tela da call (só quando o chat aberto é o grupo onde a call está).
+    function showVoiceView() {
+      if (!activeVoiceChannel || activeChat?.type !== 'group' || activeChat.id !== activeVoiceChannel.groupId) return;
+      if (!chatMessagesEl.querySelector('.voice-panel')) {
+        voiceJoinShowPending = true; // a tela ainda está sendo montada: mostra assim que existir
+        return;
+      }
+      voiceJoinShowPending = false;
+      setVoiceViewActive(true);
+      const sub = document.getElementById('active-chat-sub');
+      if (sub) sub.innerText = `🎙️ Canal de voz: ${activeVoiceChannel.name}`;
+      renderChannels();
+    }
+
+    // Volta para a tela da call a partir de qualquer chat.
+    async function returnToVoiceCall() {
+      if (!activeVoiceChannel) return;
+      const groupId = activeVoiceChannel.groupId;
+      if (activeChat?.type !== 'group' || activeChat.id !== groupId) {
+        const item = document.getElementById(`group-item-${groupId}`);
+        if (item && typeof item.onclick === 'function') await item.onclick();
+        else if (voiceCallGroupData) await selectGroupChat(groupId, voiceCallGroupData);
+      }
+      showVoiceView();
+    }
+
+    function showVoicePanel(groupId, channelName, users = []) {
+      let existingPanel = chatMessagesEl.querySelector('.voice-panel');
+
+      // Só reconstrói se for outra call; o painel da call atual é mantido para
+      // não destruir as transmissões/áudios (que não são recriados pelo WebRTC).
+      if (existingPanel && (existingPanel.dataset.groupId !== String(groupId) || existingPanel.dataset.channelName !== String(channelName))) {
+        existingPanel.remove();
+        existingPanel = null;
+      }
+
+      if (!existingPanel) {
+        const panel = document.createElement('div');
+        panel.className = 'voice-panel';
+        panel.dataset.groupId = String(groupId);
+        panel.dataset.channelName = String(channelName);
+        panel.innerHTML = `
             <div class="voice-panel-card">
               <div style="font-size:1.15rem;font-weight:700;">🎙️ ${escapeHtml(channelName)}</div>
               <div id="voice-count" style="font-size:0.8rem;color:var(--text-muted);margin-top:0.3rem;">
@@ -2826,13 +2908,8 @@
             <div id="voice-screen-selector" class="voice-screen-selector hidden" aria-label="Escolher transmissão para visualizar"></div>
             <div id="voice-media" class="voice-media"></div>
             <div id="voice-audios" class="voice-audios"></div>
-          </div>
         `;
-        const panel = chatMessagesEl.querySelector('.voice-panel');
-        if (panel) {
-          panel.dataset.groupId = String(groupId);
-          panel.dataset.channelName = String(channelName);
-        }
+        chatMessagesEl.insertBefore(panel, chatMessagesEl.firstChild);
         document.getElementById('btn-leave-voice-panel').onclick = () => leaveVoiceChannel(true);
       }
 
@@ -2895,6 +2972,10 @@
       wraps.forEach(wrap => {
         const selected = (!activeScreenSelection || wrap.dataset.screenNick === activeScreenSelection) && canViewVoiceScreen(wrap.dataset.screenNick);
         wrap.classList.toggle('screen-not-selected', !selected);
+        if (selected) {
+          const wrapVideo = wrap.querySelector('video');
+          if (wrapVideo && wrapVideo.srcObject && wrapVideo.paused) wrapVideo.play().catch(() => {});
+        }
       });
 
       document.querySelectorAll('#voice-screen-selector .voice-screen-choice').forEach(button => {
@@ -3061,6 +3142,73 @@
       applyScreenSelection();
     }
 
+    // ===== Sinalização WebRTC mais robusta (V4.9.1) =====
+    // O Firestore guarda ofertas/respostas/candidatos de ligações anteriores entre o mesmo par.
+    // Cada tentativa de conexão ganha um identificador (sid) que viaja DENTRO dos objetos
+    // offer/answer/candidate já existentes (nenhum campo novo no documento), e cada lado
+    // ignora o que sobrou de tentativas antigas.
+    function newVoiceSid() {
+      try {
+        const bytes = new Uint8Array(8);
+        crypto.getRandomValues(bytes);
+        return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+      } catch (e) {
+        return `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`;
+      }
+    }
+
+    function voiceCandidateSidMatches(peer, sid) {
+      const expected = peer.isCaller ? peer.sid : peer.offerSid;
+      if (!sid || !expected) return true; // versão antiga ou ainda não sabemos: aceita/enfileira
+      return sid === expected;
+    }
+
+    async function flushVoiceCandidates(remoteNick) {
+      const peer = voicePeers.get(remoteNick);
+      if (!peer) return;
+      const queue = voiceCandidateQueues.get(remoteNick) || [];
+      while (queue.length && peer.pc.remoteDescription) {
+        const entry = queue.shift();
+        if (!voiceCandidateSidMatches(peer, entry.sid)) continue;
+        try {
+          await peer.pc.addIceCandidate(new RTCIceCandidate(entry.candidate));
+        } catch (e) {
+          // Um candidato ruim/antigo não pode impedir os próximos da fila.
+          console.warn('Candidato ICE descartado:', e);
+        }
+      }
+    }
+
+    // Refaz a conexão com um participante (fecha a atual e deixa o fluxo normal recriar).
+    function restartVoicePeerSoon(remoteNick, pc, delayMs = 0) {
+      setTimeout(() => {
+        const current = voicePeers.get(remoteNick);
+        if (!current || current.pc !== pc) return;
+        cleanupVoicePeer(remoteNick);
+        setTimeout(() => {
+          if (activeVoiceChannel && voiceSnapshotHandler && lastVoiceSnapshot) {
+            Promise.resolve(voiceSnapshotHandler(lastVoiceSnapshot)).catch(() => {});
+          }
+        }, 300);
+      }, delayMs);
+    }
+
+    // Em malha, a mesma tela sobe uma vez para cada espectador. Limita o bitrate por
+    // conexão para a internet de quem transmite não saturar (o que fazia só alguns verem).
+    async function tuneVoiceScreenSender(peer) {
+      try {
+        const sender = peer && peer.videoSender;
+        if (!sender || !sender.track) return;
+        const params = sender.getParameters();
+        if (!params.encodings || !params.encodings.length) return; // ainda não negociado
+        const peers = Math.max(1, voicePeers.size);
+        params.encodings[0].maxBitrate = Math.max(700000, Math.min(2500000, Math.floor(6000000 / peers)));
+        await sender.setParameters(params);
+      } catch (e) {
+        /* ajuste opcional: ignora se o navegador não permitir */
+      }
+    }
+
     async function setupVoicePeer(groupId, remoteNick, channelName) {
       if (voicePeers.has(remoteNick)) return;
 
@@ -3069,30 +3217,63 @@
           { urls: 'stun:stun.l.google.com:19302' }
         ]
       });
+      // Comparação por código de caractere (a mesma do voicePairId): igual em qualquer
+      // navegador/idioma, então os dois lados sempre concordam sobre quem é o "caller".
+      const isCaller = currentUser < remoteNick;
 
-      const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
+      // IMPORTANTE (correção da transmissão que "só alguns viam"):
+      // pela especificação do WebRTC, um transceiver criado com addTransceiver() NÃO é
+      // reaproveitado quando chega uma oferta; só os criados por addTrack() são. Antes, quem
+      // RESPONDIA a oferta (o nick que vem depois na ordem alfabética) criava seus próprios
+      // transceivers de vídeo/áudio da tela, que ficavam órfãos: nada enviado por eles chegava
+      // ao outro lado. Resultado: só a transmissão de quem "liga" era vista.
+      // Agora só quem OFERECE cria esses transceivers; quem responde adota os que vieram na
+      // oferta (ver o tratamento da oferta mais abaixo).
+      let videoTransceiver = null;
+      let screenAudioTransceiver = null;
+      let micTransceiver = null;
+
+      if (isCaller) videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
 
       if (voiceLocalStream) {
         voiceLocalStream.getTracks().forEach(track => {
-          if (track.kind === 'audio') pc.addTrack(track, voiceLocalStream);
+          if (track.kind !== 'audio') return;
+          const micSender = pc.addTrack(track, voiceLocalStream);
+          micTransceiver = pc.getTransceivers().find(t => t.sender === micSender) || micTransceiver;
         });
       }
 
       // O áudio da tela usa um transceiver próprio, separado do microfone.
       // Isso permite ativá-lo/desativá-lo sem substituir o áudio da chamada.
-      const screenAudioTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
+      if (isCaller) screenAudioTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
       voicePeers.set(remoteNick, {
         pc,
-        videoSender: videoTransceiver.sender,
-        screenAudioSender: screenAudioTransceiver.sender,
+        isCaller,
+        sid: isCaller ? newVoiceSid() : null,
+        offerSid: null,
+        answering: false,
+        micTransceiver,
+        videoSender: videoTransceiver ? videoTransceiver.sender : null,
+        screenAudioSender: screenAudioTransceiver ? screenAudioTransceiver.sender : null,
         screenAudioTransceiver,
         candidateIds: new Set(),
-        pendingCandidates: []
+        pendingCandidates: [],
+        disconnectTimer: null
       });
       voiceCandidateQueues.set(remoteNick, []);
 
-      if (localScreenStream?.getVideoTracks?.()[0]) {
-        await videoTransceiver.sender.replaceTrack(localScreenStream.getVideoTracks()[0]);
+      // Quem entra depois que a transmissão já começou também recebe o vídeo e o áudio da tela.
+      // (Quem responde a oferta faz isso logo após adotar os transceivers da oferta.)
+      const ownScreenVideo = localScreenStream?.getVideoTracks?.()[0];
+      if (isCaller && ownScreenVideo) {
+        try {
+          await videoTransceiver.sender.replaceTrack(ownScreenVideo);
+          const ownScreenAudio = localScreenStream.getAudioTracks?.()[0];
+          if (ownScreenAudio) await screenAudioTransceiver.sender.replaceTrack(ownScreenAudio);
+        } catch (e) {
+          console.error('Erro ao anexar a transmissão ao novo participante:', e);
+        }
+        if (voicePeers.get(remoteNick)?.pc !== pc) return; // saiu da call enquanto isso
       }
 
       pc.ontrack = (event) => {
@@ -3107,7 +3288,9 @@
 
         if (event.track.kind === 'audio') {
           const safeNick = remoteNick.replace(/[^a-zA-Z0-9_-]/g, '_');
-          const isScreenAudio = event.transceiver === screenAudioTransceiver;
+          // O áudio que não é o do microfone é o áudio da tela (nos dois papéis: quem
+          // oferece e quem responde). Antes, quem respondia misturava os dois no mesmo <audio>.
+          const isScreenAudio = !!micTransceiver && event.transceiver !== micTransceiver;
           const audioId = isScreenAudio
             ? `voice-screen-audio-${safeNick}`
             : `voice-audio-${safeNick}`;
@@ -3143,9 +3326,12 @@
         if (!event.candidate) return;
         try {
           const candidatesRef = collection(db, "voiceRooms", groupId, "connections", voicePairId(currentUser, remoteNick), "candidates");
+          const ownPeer = voicePeers.get(remoteNick);
+          const candidateSid = ownPeer && ownPeer.pc === pc ? (isCaller ? ownPeer.sid : ownPeer.offerSid) : null;
+          const candidateJson = event.candidate.toJSON();
           await addDoc(candidatesRef, {
             from: currentUser,
-            candidate: event.candidate.toJSON(),
+            candidate: candidateSid ? { ...candidateJson, sid: candidateSid } : candidateJson,
             createdAt: serverTimestamp()
           });
         } catch (e) {
@@ -3154,13 +3340,28 @@
       };
 
       pc.onconnectionstatechange = () => {
-        if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) {
-          cleanupVoicePeer(remoteNick);
+        const state = pc.connectionState;
+        const peer = voicePeers.get(remoteNick);
+        if (!peer || peer.pc !== pc) return; // evento de uma conexão antiga
+        clearTimeout(peer.disconnectTimer);
+        peer.disconnectTimer = null;
+
+        if (state === 'failed' || state === 'closed') {
+          restartVoicePeerSoon(remoteNick, pc);
+        } else if (state === 'disconnected') {
+          // 'disconnected' costuma ser passageiro (oscilação de rede). Só refaz a conexão
+          // se continuar assim, em vez de derrubar a transmissão na primeira falha.
+          peer.disconnectTimer = setTimeout(() => {
+            if (pc.connectionState === 'disconnected') restartVoicePeerSoon(remoteNick, pc);
+          }, 8000);
+        } else if (state === 'connected' && isScreenSharing) {
+          tuneVoiceScreenSender(peer);
         }
       };
 
       const connRef = voiceConnectionRef(groupId, remoteNick);
-      const isCaller = currentUser.localeCompare(remoteNick) < 0;
+      const ownEntry = voicePeers.get(remoteNick);
+      if (!ownEntry || ownEntry.pc !== pc) return;
 
       if (isCaller) {
         const offer = await pc.createOffer();
@@ -3169,7 +3370,7 @@
           caller: currentUser,
           callee: remoteNick,
           channel: channelName,
-          offer: { type: offer.type, sdp: offer.sdp },
+          offer: { type: offer.type, sdp: offer.sdp, sid: ownEntry.sid },
           answer: null,
           updatedAt: serverTimestamp()
         }, { merge: true });
@@ -3180,30 +3381,64 @@
         const data = snap.data();
         if (data.channel !== channelName) return;
 
+        const peer = voicePeers.get(remoteNick);
+        if (!peer || peer.pc !== pc) return;
+
         try {
-          if (!isCaller && data.offer && !pc.currentRemoteDescription) {
-            await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            await updateDoc(connRef, {
-              answer: { type: answer.type, sdp: answer.sdp },
-              updatedAt: serverTimestamp()
-            });
+          if (!isCaller && data.offer) {
+            if (!pc.currentRemoteDescription && !peer.answering) {
+              peer.answering = true;
+              peer.offerSid = data.offer.sid || null;
+              await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+
+              // Adota os transceivers de vídeo e de áudio da tela que vieram na oferta e os
+              // torna bidirecionais; assim a MINHA transmissão também chega a quem me chamou.
+              const negotiated = pc.getTransceivers().filter(t => t.mid !== null && !t.stopped);
+              const adoptedVideo = negotiated.find(t => t.receiver.track.kind === 'video');
+              const adoptedScreenAudio = negotiated.find(t => t.receiver.track.kind === 'audio' && t !== peer.micTransceiver);
+              [adoptedVideo, adoptedScreenAudio].forEach(t => {
+                if (!t) return;
+                try { t.direction = 'sendrecv'; } catch (dirErr) { console.warn('Falha ao ajustar direção:', dirErr); }
+              });
+              peer.videoSender = adoptedVideo ? adoptedVideo.sender : null;
+              peer.screenAudioSender = adoptedScreenAudio ? adoptedScreenAudio.sender : null;
+              peer.screenAudioTransceiver = adoptedScreenAudio || null;
+
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              await updateDoc(connRef, {
+                answer: { type: answer.type, sdp: answer.sdp, sid: peer.offerSid },
+                updatedAt: serverTimestamp()
+              });
+
+              // Se eu já estava transmitindo quando esta conexão se formou, envia a tela agora.
+              const ownVideoNow = localScreenStream?.getVideoTracks?.()[0];
+              if (ownVideoNow && peer.videoSender) {
+                try {
+                  await peer.videoSender.replaceTrack(ownVideoNow);
+                  const ownAudioNow = localScreenStream.getAudioTracks?.()[0];
+                  if (ownAudioNow && peer.screenAudioSender) await peer.screenAudioSender.replaceTrack(ownAudioNow);
+                } catch (e) {
+                  console.error('Erro ao anexar a transmissão ao participante:', e);
+                }
+              }
+            } else if (data.offer.sid && peer.offerSid && data.offer.sid !== peer.offerSid) {
+              // Chegou uma oferta mais nova: a que respondemos era de uma tentativa antiga.
+              restartVoicePeerSoon(remoteNick, pc);
+              return;
+            }
           } else if (isCaller && data.answer && !pc.currentRemoteDescription) {
-            await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            // Só aceita a resposta que corresponde à MINHA oferta atual.
+            if (!data.answer.sid || data.answer.sid === peer.sid) {
+              await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            }
           }
 
-          const queue = voiceCandidateQueues.get(remoteNick) || [];
-          while (queue.length && pc.remoteDescription) {
-            const candidate = queue.shift();
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
-          }
+          await flushVoiceCandidates(remoteNick);
         } catch (e) {
           console.error("Erro na negociação de voz:", e);
         }
       });
-
-      voicePeers.get(remoteNick).unsubscribeConnection = unsubscribeConnection;
 
       const candidatesRef = collection(db, "voiceRooms", groupId, "connections", voicePairId(currentUser, remoteNick), "candidates");
       const unsubscribeCandidates = onSnapshot(candidatesRef, async (snap) => {
@@ -3213,31 +3448,42 @@
           if (data.from === currentUser) continue;
 
           const peer = voicePeers.get(remoteNick);
-          if (!peer) continue;
+          if (!peer || peer.pc !== pc) continue;
           if (peer.candidateIds.has(change.doc.id)) continue;
           peer.candidateIds.add(change.doc.id);
 
+          const entry = { candidate: data.candidate, sid: (data.candidate && data.candidate.sid) || null };
+          if (!voiceCandidateSidMatches(peer, entry.sid)) continue; // sobra de uma tentativa antiga
+
           try {
             if (peer.pc.remoteDescription) {
-              await peer.pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+              await peer.pc.addIceCandidate(new RTCIceCandidate(entry.candidate));
             } else {
               const queue = voiceCandidateQueues.get(remoteNick) || [];
-              queue.push(data.candidate);
+              queue.push(entry);
               voiceCandidateQueues.set(remoteNick, queue);
             }
           } catch (e) {
-            console.error("Erro ao adicionar candidato ICE:", e);
+            console.warn("Candidato ICE descartado:", e);
           }
         }
       });
 
-      voicePeers.get(remoteNick).unsubscribeCandidates = unsubscribeCandidates;
+      const entryNow = voicePeers.get(remoteNick);
+      if (entryNow && entryNow.pc === pc) {
+        entryNow.unsubscribeConnection = unsubscribeConnection;
+        entryNow.unsubscribeCandidates = unsubscribeCandidates;
+      } else {
+        try { unsubscribeConnection(); } catch (e) {}
+        try { unsubscribeCandidates(); } catch (e) {}
+      }
     }
 
     function cleanupVoicePeer(remoteNick) {
       const peer = voicePeers.get(remoteNick);
       if (!peer) return;
 
+      clearTimeout(peer.disconnectTimer);
       try { peer.unsubscribeConnection?.(); } catch (e) {}
       try { peer.unsubscribeCandidates?.(); } catch (e) {}
       try { peer.pc.close(); } catch (e) {}
@@ -3256,7 +3502,10 @@
       unlockVoiceAudio();
 
       try {
-        if (activeVoiceChannel?.groupId === groupId && activeVoiceChannel?.name === channelName) return;
+        if (activeVoiceChannel?.groupId === groupId && activeVoiceChannel?.name === channelName) {
+          showVoiceView(); // já está conectado: só volta para a tela da call
+          return;
+        }
 
         await leaveVoiceChannel(false);
 
@@ -3277,6 +3526,8 @@
         isScreenSharing = false;
 
         activeVoiceChannel = { groupId, name: channelName };
+        voiceCallGroupData = activeChat?.data || null;
+        voiceJoinShowPending = true; // mostra a tela da call quando o canal responder
         voiceAwaitingCalibration = true;
         voiceLastCalibratedSeen = null;
         voicePrevNicks = null;
@@ -3351,10 +3602,12 @@
           voicePrevStates = currentStates;
 
           showVoicePanel(groupId, channelName, users);
+          if (voiceJoinShowPending) showVoiceView();
           pruneVoiceWatchState(users);
           syncScreenSelector(users);
           renderVoiceWatchInvites();
-          renderChannels();
+          updateVoiceControls();
+          if (activeChat?.type === 'group') renderChannels();
 
           // Se o participante parou de transmitir, remova somente o áudio da
           // transmissão. O áudio do microfone continua intacto.
@@ -3379,9 +3632,11 @@
         voiceSnapshotHandler = processVoiceSnapshot;
         unsubscribeVoiceParticipants = onSnapshot(participantsRef, processVoiceSnapshot);
 
-        document.getElementById('active-chat-sub').innerText = `🎙️ Canal de voz: ${channelName}`;
+        if (activeChat?.id === groupId && (voiceViewActive || voiceJoinShowPending)) {
+          document.getElementById('active-chat-sub').innerText = `🎙️ Canal de voz: ${channelName}`;
+        }
         updateVoiceControls();
-        renderChannels();
+        if (activeChat?.type === 'group') renderChannels();
       } catch (e) {
         console.error("Erro ao entrar no canal de voz:", e);
         stopVoiceHeartbeat();
@@ -3396,6 +3651,10 @@
         localScreenStream = null;
         isMicMuted = false;
         isScreenSharing = false;
+        voiceJoinShowPending = false;
+        voiceCallGroupData = null;
+        chatMessagesEl.querySelector('.voice-panel')?.remove();
+        setVoiceViewActive(false);
         updateVoiceControls();
         alert("Não foi possível acessar o microfone. Verifique a permissão do navegador.");
       }
@@ -3404,6 +3663,7 @@
     async function leaveVoiceChannel(showText = true) {
       const previous = activeVoiceChannel;
       if (!previous && !voiceLocalStream && !unsubscribeVoiceParticipants) return;
+      const wasViewingCall = voiceViewActive;
       if (previous) playVoiceSound('self-leave');
       voicePrevNicks = null;
       voicePrevStates = new Map();
@@ -3444,13 +3704,23 @@
       isScreenSharing = false;
       localScreenStream = null;
       localVoiceStream = null;
+
+      // Desmonta a tela da call (era ela que guardava os vídeos/áudios das conexões).
+      activeScreenSelection = null;
+      voiceCallGroupData = null;
+      chatMessagesEl.querySelector('.voice-panel')?.remove();
+      setVoiceViewActive(false);
       updateVoiceControls();
 
       if (showText && activeChat?.type === 'group') {
-        activeChannel = activeChat.data.channels?.[0] || 'geral';
-        renderChannels();
-        carregarMensagens();
-        document.getElementById('active-chat-sub').innerText = `Dono: ${activeChat.data.owner}`;
+        if (wasViewingCall) {
+          activeChannel = activeChat.data.channels?.[0] || 'geral';
+          renderChannels();
+          carregarMensagens();
+          document.getElementById('active-chat-sub').innerText = `Dono: ${activeChat.data.owner}`;
+        } else {
+          renderChannels(); // só atualiza as abas; não mexe no chat que a pessoa está lendo
+        }
       }
     }
 
@@ -3684,9 +3954,12 @@
       }
 
       if (voiceStatusEl && inVoice) {
-        voiceStatusEl.innerText = isScreenSharing
+        const liveHint = (!voiceViewActive && voiceSharersNow.length) ? ' • 🖥️ transmissão ao vivo' : '';
+        voiceStatusEl.innerText = (isScreenSharing
           ? 'Conectado • transmitindo tela'
-          : (isMicMuted ? 'Conectado • microfone desligado' : 'Conectado • microfone ativo');
+          : (isMicMuted ? 'Conectado • microfone desligado' : 'Conectado • microfone ativo')) + liveHint;
+        // Fora da tela da call, o status vira atalho para voltar a ela.
+        voiceStatusEl.classList.toggle('voice-status-link', !voiceViewActive);
       }
     }
 
@@ -3765,6 +4038,8 @@
           }
         }
 
+        voicePeers.forEach(peer => { tuneVoiceScreenSender(peer); });
+
         isScreenSharing = true;
         createVoiceScreenSurface(currentUser, localScreenStream, { local: true });
         syncScreenSelector([{ user: currentUser, sharingScreen: true }]);
@@ -3803,6 +4078,15 @@
       updateVoiceControls();
     }
 
+    if (voiceStatusEl) voiceStatusEl.addEventListener('click', () => {
+      if (activeVoiceChannel && !voiceViewActive) returnToVoiceCall();
+    });
+    // Barra "Em chamada" da lista de conversas (celular): além de abrir o chat, volta para a call.
+    document.addEventListener('click', (event) => {
+      if (!event.target.closest?.('#clustercord-call-bar .call-bar-info')) return;
+      if (activeVoiceChannel && !voiceViewActive) returnToVoiceCall();
+    });
+
     if (btnMuteMic) btnMuteMic.addEventListener('click', toggleMicrophone);
     if (btnShareScreen) btnShareScreen.addEventListener('click', toggleScreenShare);
     if (btnLeaveVoice) btnLeaveVoice.addEventListener('click', () => {
@@ -3824,7 +4108,7 @@
 
       const renderMessages = async (msgs) => {
         msgs.sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
-        chatMessagesEl.innerHTML = '';
+        clearChatMessages();
 
         let previousMessageDateKey = null;
 
@@ -4482,7 +4766,9 @@
           }
         };
 
-        const observer = new MutationObserver(() => {
+        const observer = new MutationObserver((mutations) => {
+          // A tela da call fica montada junto das mensagens: suas atualizações não são mensagens.
+          if (mutations.every(m => m.target?.closest?.('.voice-panel'))) return;
           clearTimeout(observer._timer);
           observer._timer = setTimeout(decorateMessageTimes, 80);
         });
