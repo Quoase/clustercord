@@ -1897,6 +1897,7 @@
     let unsubscribeVoiceParticipants = null;
     let voiceLocalStream = null;
     let activeVoiceChannel = null;
+    let callCoinRewardTimer = null;
     let unsubscribeGroupVoicePresence = null;
     const groupVoicePresence = new Map();
     const voicePeers = new Map();
@@ -2742,13 +2743,15 @@
     function renderSidebar() {
       contactListEl.innerHTML = '<div class="section-title">Directs</div>';
 
-      const contacts = userProfile.contacts || [];
+      const renderVersion = (renderSidebar._version = (renderSidebar._version || 0) + 1);
+      const contacts = [...new Set((userProfile.contacts || []).filter(nick => typeof nick === 'string' && nick.trim()))];
       contacts.forEach(async (nick) => {
         const item = document.createElement('div');
         item.className = `contact-item ${activeChat?.id === nick ? 'active' : ''}`;
         item.onclick = () => selectDirectChat(nick);
 
         const data = await getUserData(nick);
+        if (renderVersion !== renderSidebar._version) return;
         const avatarStyle = data.photo ? `style="background-image:url(${data.photo})"` : '';
         const avatarText = data.photo ? '' : nick.charAt(0).toUpperCase();
         const unread = getUnreadCount(directUnreadKey(nick));
@@ -3096,6 +3099,206 @@
         console.error(`Erro ao atualizar não lidas de ${nick}:`, e);
       }
     }
+
+    // ===== Notificações sonoras de mensagens (V4.9.5) - ADITIVO =====
+    // Quando alguém envia mensagem, o contador de "não lidas" do DESTINATÁRIO sobe no perfil dele.
+    // Cada pessoa só observa o próprio perfil, então somente o destinatário ouve o som.
+    // Se ele já está com aquela conversa (ou canal) aberta e a aba visível, o som é ignorado.
+    // O som é gerado pelo navegador (sem arquivos externos), reaproveitando o mesmo contexto de áudio da call.
+    let notifPrevUnread = null;   // null = ainda não leu (a primeira leitura é só referência, sem som)
+    let notifLastSoundAt = 0;
+    let notifAudioUnlockPending = false;
+
+    function messageNotifSoundsEnabled() {
+      try { return localStorage.getItem('clustercord_notif_sounds') !== 'off'; } catch (e) { return true; }
+    }
+
+    function playMessageNotificationSound() {
+      if (!messageNotifSoundsEnabled()) return;
+      try {
+        unlockVoiceAudio();
+        const ctx = voiceAudioCtx;
+        if (!ctx) return;
+        // Android WebView e alguns builds Electron podem concluir resume() depois
+        // do evento do Firebase. Agenda o mesmo som assim que o contexto destravar.
+        if (ctx.state !== 'running') {
+          if (!notifAudioUnlockPending && typeof ctx.resume === 'function') {
+            notifAudioUnlockPending = true;
+            ctx.resume().then(() => {
+              notifAudioUnlockPending = false;
+              if (ctx.state === 'running') playMessageNotificationSound();
+            }).catch(() => { notifAudioUnlockPending = false; });
+          }
+          return;
+        }
+
+        // "plim-plim" curto e agradável (diferente dos sons da call)
+        const notes = [[880.00, 0], [1318.51, 0.12]];
+        const start = ctx.currentTime + 0.01;
+        notes.forEach(([freq, offset]) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          const t0 = start + offset;
+          gain.gain.setValueAtTime(0.0001, t0);
+          gain.gain.exponentialRampToValueAtTime(0.2, t0 + 0.015);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.28);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(t0);
+          osc.stop(t0 + 0.3);
+        });
+      } catch (e) {}
+    }
+
+    // O navegador só libera áudio depois de um toque/clique: destrava na primeira interação.
+    ['pointerdown', 'keydown', 'touchstart'].forEach(evt => {
+      window.addEventListener(evt, function unlockNotifAudioOnce() {
+        unlockVoiceAudio();
+        if (voiceAudioCtx && voiceAudioCtx.state === 'running') {
+          ['pointerdown', 'keydown', 'touchstart'].forEach(e => window.removeEventListener(e, unlockNotifAudioOnce, true));
+        }
+      }, true);
+    });
+
+    // A pessoa está olhando exatamente para essa conversa agora?
+    function isViewingUnreadKey(key) {
+      if (document.visibilityState !== 'visible') return false;
+      if (!activeChat) return false;
+      if (activeChat.type === 'direct') return key === directUnreadKey(activeChat.id);
+      return key === channelUnreadKey(activeChat.id, activeChannel);
+    }
+
+    function checkIncomingMessageSound(profile) {
+      const current = (profile && profile.unreadCounts) || {};
+
+      if (notifPrevUnread === null) {
+        notifPrevUnread = { ...current };
+        return;
+      }
+
+      let shouldPlay = false;
+      Object.keys(current).forEach(key => {
+        const now = Number(current[key] || 0);
+        const before = Number(notifPrevUnread[key] || 0);
+        if (now > before && !isViewingUnreadKey(key)) shouldPlay = true;
+      });
+      notifPrevUnread = { ...current };
+
+      // No máximo um som por leitura (e nunca em rajada)
+      if (shouldPlay && (Date.now() - notifLastSoundAt) > 400) {
+        notifLastSoundAt = Date.now();
+        playMessageNotificationSound();
+      }
+    }
+
+    // Usa o evento que o próprio perfil já dispara a cada atualização (nenhuma linha existente foi alterada).
+    window.addEventListener('clustercord-profile-updated', () => {
+      checkIncomingMessageSound(window.__clustercordUserProfile || userProfile);
+    });
+
+    // ===== Presença Online/Offline (V4.9.6) - ADITIVO =====
+    // Cada pessoa grava no PRÓPRIO perfil um "sinal de vida" (presenceAt) enquanto o site está aberto e visível.
+    // Quem vê esse perfil considera Online se o sinal for recente; senão, Offline.
+    // Se a pessoa desativar a presença (presenceHidden), aparece como Offline para todos e não envia sinal.
+    const PRESENCE_BEAT_MS = 60000;      // 1 sinal por minuto (leve para o Firebase)
+    const PRESENCE_STALE_MS = 150000;    // sem sinal há 2,5 min = Offline
+    let presenceTimer = null;
+    let presenceSendLocalAt = 0;
+    let presenceClockOffset = 0;         // diferença entre o relógio do servidor e o do aparelho
+    let presenceLastCalibrated = null;
+    let presenceFailures = 0;
+    let presenceRetryAt = 0;
+
+    async function sendPresence(online) {
+      if (!currentUser || !authenticatedUid) return;
+      if (Date.now() < presenceRetryAt) return;
+      presenceSendLocalAt = Date.now();
+      try {
+        await updateDoc(doc(db, "users", currentUser), {
+          presenceOnline: !!online,
+          presenceAt: serverTimestamp()
+        });
+        presenceFailures = 0;
+      } catch (e) {
+        presenceFailures++;
+        if (presenceFailures >= 3) presenceRetryAt = Date.now() + 10 * 60 * 1000;
+        console.warn('Presença: não foi possível gravar no Firebase.', e);
+      }
+    }
+
+    function presenceBeat() {
+      if (!currentUser) return;
+      if (userProfile.presenceHidden) {
+        // Presença desativada: garante que o perfil não fique marcado como online.
+        if (userProfile.presenceOnline === true) sendPresence(false);
+        return;
+      }
+      if (document.visibilityState === 'visible') sendPresence(true);
+    }
+
+    function startPresence() {
+      if (presenceTimer) return;
+      presenceTimer = setInterval(presenceBeat, PRESENCE_BEAT_MS);
+      presenceBeat();
+    }
+
+    // Aprende a diferença entre o relógio do servidor e o do aparelho usando o meu próprio sinal.
+    function calibratePresenceClock(profile) {
+      const at = profile && profile.presenceAt;
+      const ms = at && typeof at.toMillis === 'function' ? at.toMillis() : null;
+      if (ms === null || ms === presenceLastCalibrated) return;
+      presenceLastCalibrated = ms;
+      if (presenceSendLocalAt && (Date.now() - presenceSendLocalAt) < 15000) {
+        presenceClockOffset = ms - presenceSendLocalAt;
+      }
+    }
+
+    window.addEventListener('clustercord-profile-updated', () => {
+      const profile = window.__clustercordUserProfile || userProfile;
+      calibratePresenceClock(profile);
+      startPresence();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') presenceBeat();
+    });
+    window.addEventListener('pageshow', () => presenceBeat());
+    window.addEventListener('online', () => { presenceRetryAt = 0; presenceBeat(); });
+    // Ao fechar a aba/app, tenta avisar na hora (se não der, o sinal expira sozinho em ~2,5 min).
+    window.addEventListener('pagehide', () => {
+      if (currentUser && !userProfile.presenceHidden) sendPresence(false);
+    });
+    document.getElementById('btn-logout')?.addEventListener('click', () => {
+      if (currentUser && !userProfile.presenceHidden) sendPresence(false);
+    });
+
+    // 'online' | 'offline' para qualquer usuário (usado pela interface).
+    window.__clustercordPresenceOf = (nick) => {
+      if (!nick) return 'offline';
+      if (nick === currentUser) return userProfile.presenceHidden ? 'offline' : 'online';
+      const data = usersCache[nick];
+      if (!data || data.presenceHidden || data.presenceOnline !== true) return 'offline';
+      const at = data.presenceAt;
+      const ms = at && typeof at.toMillis === 'function' ? at.toMillis() : null;
+      if (ms === null) return 'offline';
+      return (Date.now() + presenceClockOffset - ms) <= PRESENCE_STALE_MS ? 'online' : 'offline';
+    };
+
+    // Botão do "Personalizar Perfil": ativa/desativa a presença. Lança erro se o Firebase recusar.
+    window.__clustercordSetPresenceHidden = async (hidden) => {
+      if (!currentUser || !authenticatedUid) throw new Error('sem-sessao');
+      const visible = document.visibilityState === 'visible';
+      await updateDoc(doc(db, "users", currentUser), {
+        presenceHidden: !!hidden,
+        presenceOnline: !hidden && visible,
+        presenceAt: serverTimestamp()
+      });
+      presenceSendLocalAt = Date.now();
+      presenceRetryAt = 0;
+      presenceFailures = 0;
+    };
 
 
     function voicePairId(a, b) {
@@ -3922,6 +4125,7 @@
           lastSeen: serverTimestamp()
         });
         startVoiceHeartbeat();
+        startCallCoinRewards();
         playVoiceSound('self-join');
 
         const participantsRef = collection(db, "voiceRooms", groupId, "participants");
@@ -4014,6 +4218,7 @@
         if (activeChat?.type === 'group') renderChannels();
       } catch (e) {
         console.error("Erro ao entrar no canal de voz:", e);
+        stopCallCoinRewards();
         stopVoiceHeartbeat();
         voiceSnapshotHandler = null;
         lastVoiceSnapshot = null;
@@ -4037,6 +4242,7 @@
 
     async function leaveVoiceChannel(showText = true) {
       const previous = activeVoiceChannel;
+      stopCallCoinRewards();
       if (!previous && !voiceLocalStream && !unsubscribeVoiceParticipants) return;
       const wasViewingCall = voiceViewActive;
       if (previous) playVoiceSound('self-leave');
@@ -4181,6 +4387,50 @@
         // A falha na recompensa nunca interrompe nem desfaz o envio da mensagem.
         console.error('Erro ao adicionar Clustercoin:', error);
       }
+    }
+
+    // V4.9.7: recompensa de 0.5 Clustercoins por cada 2 minutos em call.
+    // O campo próprio limita recompensas entre abas/dispositivos sem interferir
+    // no limite já usado para as recompensas por mensagem.
+    async function awardCallClustercoin() {
+      if (!currentUser || !authenticatedUid || !activeVoiceChannel) return;
+
+      try {
+        const userRef = doc(db, 'users', currentUser);
+        await runTransaction(db, async (transaction) => {
+          const snap = await transaction.get(userRef);
+          if (!snap.exists()) return;
+
+          const data = snap.data() || {};
+          const lastAward = data.lastCallClustercoinAt;
+          const lastMillis = lastAward?.toMillis ? lastAward.toMillis() : 0;
+          if (lastMillis && (Date.now() - lastMillis) < 120000) return;
+
+          const currentCoins = Number(data.clustercoins || 0);
+          transaction.update(userRef, {
+            clustercoins: Math.round((currentCoins + 0.5) * 10) / 10,
+            lastCallClustercoinAt: serverTimestamp()
+          });
+        });
+      } catch (error) {
+        console.error('Erro ao adicionar Clustercoins pela call:', error);
+      }
+    }
+
+    function startCallCoinRewards() {
+      if (callCoinRewardTimer) clearInterval(callCoinRewardTimer);
+      callCoinRewardTimer = setInterval(() => {
+        if (!activeVoiceChannel) {
+          stopCallCoinRewards();
+          return;
+        }
+        awardCallClustercoin();
+      }, 120000);
+    }
+
+    function stopCallCoinRewards() {
+      if (callCoinRewardTimer) clearInterval(callCoinRewardTimer);
+      callCoinRewardTimer = null;
     }
 
     /* Foguinho: conta o dia de hoje na sequência. Só mexe em streakCount, streakBest e streakLastDay. */
@@ -10796,6 +11046,295 @@
   /* Virou o dia com o app aberto? Voltou para a aba? Confere de novo. */
   setInterval(ensureTouched, 60000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { ensureTouched(); refreshAll(); } });
+
+  refreshAll();
+})();
+</script>
+
+<!-- V4.9.6 (ADITIVO): Status Online/Offline em todos os usuários + botão de presença em "Personalizar Perfil" -->
+<style id="clustercord-presence-v496">
+  .cc-presence-dot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    margin-right: 6px;
+    border-radius: 50%;
+    vertical-align: middle;
+    flex: 0 0 auto;
+    background: #6b7280;
+    box-shadow: 0 0 0 2px var(--bg-panel, #121318);
+    transition: background 0.3s ease, box-shadow 0.3s ease;
+  }
+  .cc-presence-dot[data-status="online"] {
+    background: #23d160;
+    box-shadow: 0 0 0 2px var(--bg-panel, #121318), 0 0 8px rgba(35, 209, 96, 0.65);
+  }
+
+  .cc-presence-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex: 0 0 auto;
+    padding: 0.12rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-muted, #8e9297);
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+  .cc-presence-pill .cc-presence-dot { width: 8px; height: 8px; margin: 0; box-shadow: none; }
+  .cc-presence-pill[data-status="online"] { background: rgba(35, 209, 96, 0.14); color: #4ade80; }
+
+  .clustercord-profile-stat .cc-presence-pill { font-size: 0.8rem; }
+
+  /* Botão de presença (aparece somente em "Personalizar Perfil") */
+  .cc-presence-setting {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    margin: 0.4rem 0 1rem;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .cc-presence-setting-text { flex: 1; min-width: 0; }
+  .cc-presence-setting-text b { display: block; font-size: 0.92rem; }
+  .cc-presence-setting-text span { display: block; margin-top: 0.2rem; color: var(--text-muted, #8e9297); font-size: 0.76rem; line-height: 1.35; }
+
+  .cc-switch {
+    position: relative;
+    flex: 0 0 auto;
+    width: 52px;
+    height: 30px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: #4b5563;
+    cursor: pointer;
+    transition: background 0.25s ease;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .cc-switch::before { content: ''; position: absolute; inset: -8px -4px; } /* área de toque maior no celular */
+  .cc-switch[aria-checked="true"] { background: #23d160; }
+  .cc-switch .cc-switch-knob {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    transition: transform 0.25s ease;
+  }
+  .cc-switch[aria-checked="true"] .cc-switch-knob { transform: translateX(22px); }
+  .cc-switch:focus-visible { outline: 2px solid var(--accent-blue, #0088ff); outline-offset: 3px; }
+  .cc-switch:disabled { opacity: 0.6; cursor: wait; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cc-presence-dot, .cc-switch, .cc-switch .cc-switch-knob { transition: none; }
+  }
+</style>
+
+<script>
+(() => {
+  'use strict';
+
+  const app = document.getElementById('app-screen');
+  if (!app) return;
+
+  const LABEL = { online: 'Online', offline: 'Offline' };
+  const statusOf = (nick) => {
+    try { return (window.__clustercordPresenceOf && window.__clustercordPresenceOf(nick)) === 'online' ? 'online' : 'offline'; }
+    catch (e) { return 'offline'; }
+  };
+  const myNick = () => (window.__clustercordUserProfile && window.__clustercordUserProfile.nick) || '';
+
+  /* Bolinha (sem texto, então não interfere em quem lê o nome do usuário) */
+  const upsertDot = (host, nick) => {
+    if (!host || !nick) return;
+    const status = statusOf(nick);
+    let dot = host.querySelector(':scope > .cc-presence-dot');
+    if (!dot) {
+      dot = document.createElement('span');
+      dot.className = 'cc-presence-dot';
+      dot.setAttribute('role', 'img');
+      host.insertBefore(dot, host.firstChild);
+    }
+    if (dot.dataset.status !== status) {
+      dot.dataset.status = status;
+      dot.title = LABEL[status];
+      dot.setAttribute('aria-label', LABEL[status]);
+    }
+  };
+
+  /* Selo com texto: "● Online" / "● Offline" */
+  const upsertPill = (host, nick, before) => {
+    if (!host || !nick) return;
+    const status = statusOf(nick);
+    let pill = host.querySelector(':scope > .cc-presence-pill');
+    if (!pill) {
+      pill = document.createElement('span');
+      pill.className = 'cc-presence-pill';
+      pill.innerHTML = '<span class="cc-presence-dot"></span><span class="cc-presence-pill-text"></span>';
+      if (before && before.parentNode === host) host.insertBefore(pill, before); else host.appendChild(pill);
+    }
+    if (pill.dataset.status !== status) {
+      pill.dataset.status = status;
+      pill.querySelector('.cc-presence-dot').dataset.status = status;
+      pill.querySelector('.cc-presence-pill-text').textContent = LABEL[status];
+      pill.setAttribute('aria-label', LABEL[status]);
+    }
+  };
+
+  const contactList = document.getElementById('contact-list');
+  const chatMessages = document.getElementById('chat-messages');
+  const activeName = document.getElementById('active-chat-name');
+  const activeSub = document.getElementById('active-chat-sub');
+  const myName = document.getElementById('my-name');
+  const panelHandle = document.getElementById('clustercord-profile-handle');
+  const panelBody = document.querySelector('#clustercord-user-profile-panel .clustercord-profile-body');
+
+  /* Linha "Status" nas Informações do painel de perfil */
+  let panelStatusValue = null;
+  if (panelBody) {
+    const row = document.createElement('div');
+    row.className = 'clustercord-profile-stat cc-profile-presence';
+    row.innerHTML = '<span class="clustercord-profile-stat-label">Status</span><span class="clustercord-profile-stat-value" id="cc-profile-presence-value"></span>';
+    panelBody.appendChild(row);
+    panelStatusValue = row.querySelector('#cc-profile-presence-value');
+  }
+
+  const decorateContacts = () => {
+    if (!contactList) return;
+    contactList.querySelectorAll('.contact-item:not([id^="group-item-"]) .user-name').forEach((el) => {
+      upsertDot(el, el.textContent.trim());
+    });
+  };
+
+  const decorateMessages = () => {
+    if (!chatMessages) return;
+    chatMessages.querySelectorAll('.msg-author').forEach((el) => {
+      upsertDot(el, el.textContent.trim());
+    });
+  };
+
+  const decorateHeader = () => {
+    if (!activeName) return;
+    const host = activeName.parentElement;
+    if (!host) return;
+    const name = activeName.textContent.trim();
+    const isGroup = /^Dono:/.test(((activeSub && activeSub.textContent) || '').trim());
+    const old = host.querySelector(':scope > .cc-presence-pill');
+    if (!name || name === 'Selecione uma conversa' || isGroup) {
+      if (old) old.remove();
+      return;
+    }
+    upsertPill(host, name);
+  };
+
+  const decorateMine = () => {
+    const nick = myNick();
+    if (!nick || !myName) return;
+    upsertDot(myName, nick);
+  };
+
+  const decoratePanel = () => {
+    if (!panelHandle || !panelStatusValue) return;
+    const nick = panelHandle.textContent.replace(/^@/, '').trim();
+    if (!nick) return;
+    upsertPill(panelStatusValue, nick);
+  };
+
+  let pending = false;
+  const refreshAll = () => {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => {
+      pending = false;
+      decorateContacts();
+      decorateMessages();
+      decorateHeader();
+      decorateMine();
+      decoratePanel();
+    });
+  };
+
+  const deep = { childList: true, subtree: true, characterData: true };
+  if (contactList) new MutationObserver(refreshAll).observe(contactList, { childList: true, subtree: true });
+  if (chatMessages) new MutationObserver(refreshAll).observe(chatMessages, { childList: true, subtree: true });
+  if (activeName) new MutationObserver(refreshAll).observe(activeName, deep);
+  if (activeSub) new MutationObserver(refreshAll).observe(activeSub, deep);
+  if (myName) new MutationObserver(refreshAll).observe(myName, deep);
+  if (panelHandle) new MutationObserver(refreshAll).observe(panelHandle, deep);
+
+  /* ---------- Botão "Mostrar minha presença" (somente em Personalizar Perfil) ---------- */
+  const editModal = document.querySelector('#profile-modal .modal');
+  const saveButton = document.getElementById('btn-save-profile');
+  let switchBtn = null;
+  let switchSub = null;
+  let busy = false;
+
+  const SUB_ON = 'Os outros veem você como Online enquanto estiver no Clustercord.';
+  const SUB_OFF = 'Você aparece como Offline para todos, mesmo com o Clustercord aberto.';
+
+  const paintSwitch = (on) => {
+    if (!switchBtn) return;
+    switchBtn.setAttribute('aria-checked', on ? 'true' : 'false');
+    switchSub.textContent = on ? SUB_ON : SUB_OFF;
+  };
+
+  const syncSwitch = () => {
+    if (busy || !switchBtn) return;
+    const profile = window.__clustercordUserProfile;
+    paintSwitch(!(profile && profile.presenceHidden));
+  };
+
+  if (editModal && saveButton) {
+    const setting = document.createElement('div');
+    setting.className = 'cc-presence-setting';
+    setting.innerHTML =
+      '<div class="cc-presence-setting-text"><b>Mostrar minha presença</b><span id="cc-presence-setting-sub"></span></div>' +
+      '<button type="button" class="cc-switch" id="cc-presence-switch" role="switch" aria-checked="true" aria-label="Mostrar minha presença Online/Offline"><span class="cc-switch-knob"></span></button>';
+    saveButton.insertAdjacentElement('beforebegin', setting);
+    switchBtn = setting.querySelector('#cc-presence-switch');
+    switchSub = setting.querySelector('#cc-presence-setting-sub');
+    paintSwitch(true);
+
+    switchBtn.addEventListener('click', async () => {
+      if (busy) return;
+      const wasOn = switchBtn.getAttribute('aria-checked') === 'true';
+      const nextOn = !wasOn;
+      busy = true;
+      switchBtn.disabled = true;
+      paintSwitch(nextOn);
+      try {
+        if (typeof window.__clustercordSetPresenceHidden !== 'function') throw new Error('indisponivel');
+        await window.__clustercordSetPresenceHidden(!nextOn);
+      } catch (error) {
+        console.error('Presença: não foi possível alterar.', error);
+        paintSwitch(wasOn);
+        alert('Não foi possível alterar a presença agora. Se o problema continuar, o Firebase precisa permitir os campos presenceHidden, presenceOnline e presenceAt no perfil do usuário (Firestore Rules).');
+      } finally {
+        busy = false;
+        switchBtn.disabled = false;
+        refreshAll();
+      }
+    });
+
+    /* Sempre que a janela abrir, mostra o estado real */
+    new MutationObserver(syncSwitch).observe(document.getElementById('profile-modal'), { attributes: true, attributeFilter: ['class'] });
+  }
+
+  window.addEventListener('clustercord-profile-updated', () => { syncSwitch(); refreshAll(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshAll(); });
+
+  /* Os perfis dos outros chegam em tempo real; reavalia o "recente demais / antigo demais" a cada 10 s. */
+  setInterval(refreshAll, 10000);
 
   refreshAll();
 })();
