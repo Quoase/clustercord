@@ -1895,6 +1895,7 @@
     let activeChannel = 'geral';
     let usersCache = {};
     let unsubscribeMessages = null;
+    let messageRenderEpoch = 0;
     let unsubscribeVoiceParticipants = null;
     let voiceLocalStream = null;
     let activeVoiceChannel = null;
@@ -2579,6 +2580,7 @@
       typingPublishedKey = '';
       typingLastPublishedAt = 0;
       queueTypingStatus(oldKey, false);
+      renderTypingIndicator();
     }
 
     function refreshTypingProfileWatchers() {
@@ -2607,8 +2609,11 @@
       const nicks = activeChat.type === 'direct'
         ? [activeChat.id]
         : (Array.isArray(activeChat.data?.members) ? activeChat.data.members : []);
-      const typingNicks = [...new Set(nicks)].filter(nick => {
-        if (!nick || nick === currentUser) return false;
+      const candidates = [...nicks];
+      if (typingPublishedKey === chatKey && currentUser) candidates.push(currentUser);
+      const typingNicks = [...new Set(candidates)].filter(nick => {
+        if (!nick) return false;
+        if (nick === currentUser) return typingPublishedKey === chatKey;
         const data = usersCache[nick];
         if (data?.typingChatKey !== chatKey) return false;
         const stamp = data.typingAt;
@@ -2647,6 +2652,7 @@
       }
       if (typingIdleTimer) clearTimeout(typingIdleTimer);
       typingIdleTimer = setTimeout(() => clearMyTypingStatus(chatKey), 2300);
+      renderTypingIndicator();
     });
 
     typingExpiryTimer = setInterval(renderTypingIndicator, 2000);
@@ -4597,14 +4603,13 @@
       return result;
     };
 
-    let clusterSendSucceeded = false;
-    const pendingMessageSends = new Set();
+    const pendingMessageSends = new Map();
+    const recentMessageSendAt = new Map();
 
-    async function sendMessage(rawText) {
-      /* rawText só é string quando vem do anexo de imagem; cliques/Enter chegam como evento. */
+    function sendMessage(rawText) {
       const isRawSend = typeof rawText === 'string';
       const text = (isRawSend ? rawText : messageInput.value).trim();
-      if (!text || !activeChat) return;
+      if (!text || !activeChat) return Promise.resolve(false);
 
       const sendKey = JSON.stringify([
         activeChat.type,
@@ -4612,9 +4617,26 @@
         activeChat.type === 'group' ? activeChannel : '',
         text
       ]);
-      if (pendingMessageSends.has(sendKey)) return;
-      pendingMessageSends.add(sendKey);
+      const pending = pendingMessageSends.get(sendKey);
+      if (pending) return pending;
 
+      const previousSendAt = recentMessageSendAt.get(sendKey) || 0;
+      if (Date.now() - previousSendAt < 900) return Promise.resolve(true);
+
+      const sendTask = sendMessageCore(rawText, sendKey);
+      pendingMessageSends.set(sendKey, sendTask);
+      return sendTask.finally(() => {
+        if (pendingMessageSends.get(sendKey) === sendTask) pendingMessageSends.delete(sendKey);
+      });
+    }
+
+    async function sendMessageCore(rawText, sendKey) {
+      /* rawText só é string quando vem do anexo de imagem; cliques/Enter chegam como evento. */
+      const isRawSend = typeof rawText === 'string';
+      const text = (isRawSend ? rawText : messageInput.value).trim();
+      if (!text || !activeChat) return false;
+
+      let messagePersisted = false;
       try {
 
       const msgData = {
@@ -4631,14 +4653,14 @@
         const recSnap = await getDoc(doc(db, "users", activeChat.id));
         if (!recSnap.exists()) {
           alert("Usuário não encontrado.");
-          return;
+          return false;
         }
 
         const recData = recSnap.data();
         const receiverUid = recData.uid || null;
         if (!receiverUid) {
           alert("Este usuário ainda não está vinculado ao login seguro.");
-          return;
+          return false;
         }
 
         msgData.receiverUid = receiverUid;
@@ -4655,12 +4677,17 @@
 
       try {
         await addDoc(collection(db, "messages"), msgData);
-        clusterSendSucceeded = true;
+        messagePersisted = true;
+        const sendSuccessAt = Date.now();
+        recentMessageSendAt.set(sendKey, sendSuccessAt);
+        setTimeout(() => {
+          if (recentMessageSendAt.get(sendKey) === sendSuccessAt) recentMessageSendAt.delete(sendKey);
+        }, 900);
       } catch (err) {
         console.error('Erro ao enviar mensagem:', err);
         if (!isRawSend) messageInput.value = text;
         alert(`Não foi possível enviar a mensagem: ${err?.code || err?.message || 'erro desconhecido'}`);
-        return;
+        return false;
       }
 
       await awardClustercoin();
@@ -4687,8 +4714,10 @@
             .map(member => incrementarNaoLidas(member, unreadKey))
         );
       }
-      } finally {
-        pendingMessageSends.delete(sendKey);
+        return true;
+      } catch (err) {
+        console.error('Erro ao concluir o envio da mensagem:', err);
+        return messagePersisted;
       }
     }
 
@@ -4697,9 +4726,7 @@
     window.__clustercordHasActiveChat = () => !!activeChat;
     window.__clustercordSendRaw = async (rawText) => {
       if (!activeChat) return false;
-      clusterSendSucceeded = false;
-      await sendMessage(String(rawText || ''));
-      return clusterSendSucceeded;
+      return await sendMessage(String(rawText || ''));
     };
 
     async function updateVoiceParticipantState(fields) {
@@ -5001,11 +5028,16 @@
 
     function carregarMensagens() {
       if (unsubscribeMessages) unsubscribeMessages();
+      const chatEpoch = ++messageRenderEpoch;
       if (!activeChat) return;
 
       let cleanup = null;
+      let renderPass = 0;
 
       const renderMessages = async (msgs) => {
+        const currentRenderPass = ++renderPass;
+        if (chatEpoch !== messageRenderEpoch) return;
+        msgs = [...new Map(msgs.filter(msg => msg?.id).map(msg => [msg.id, msg])).values()];
         msgs.sort((a,b) => (a.timestamp?.seconds || 0) - (b.timestamp?.seconds || 0));
         clearChatMessages();
 
@@ -5061,6 +5093,7 @@
           wrapper.className = `message-wrapper ${isMe ? 'sent' : 'received'}`;
 
           const senderData = await getUserData(msg.sender);
+          if (chatEpoch !== messageRenderEpoch || currentRenderPass !== renderPass) return;
           const avatarDiv = document.createElement('div');
           avatarDiv.className = 'msg-avatar';
           if (senderData.photo) {
@@ -5147,7 +5180,9 @@
           chatMessagesEl.appendChild(wrapper);
         }
 
-        chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+        if (chatEpoch === messageRenderEpoch && currentRenderPass === renderPass) {
+          chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+        }
       };
 
       if (activeChat.type === 'direct') {
@@ -11491,3 +11526,15 @@
   refreshAll();
 })();
 </script>
+
+<style id="clustercord-typing-indicator-layout-fix">
+  #typing-indicator { flex: 0 0 auto; width: 100%; box-sizing: border-box; align-self: stretch; position: relative; z-index: 1; }
+  @media (min-width: 701px) {
+    #app-screen.clustercord-group-layout .chat-area { grid-template-rows: auto minmax(0, 1fr) auto auto auto; }
+    #app-screen.clustercord-group-layout .channels-bar { grid-row: 2 / 6; }
+    #app-screen.clustercord-group-layout .chat-messages { grid-row: 2; }
+    #app-screen.clustercord-group-layout #typing-indicator { grid-column: 2; grid-row: 3; min-height: 1.2em; }
+    #app-screen.clustercord-group-layout .chat-input-area { grid-row: 4; }
+    #app-screen.clustercord-group-layout #voice-controls { grid-row: 5; }
+  }
+</style>
