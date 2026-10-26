@@ -1718,6 +1718,7 @@
 
       <div id="channels-bar" class="channels-bar hidden"></div>
       <div class="chat-messages" id="chat-messages"></div>
+      <div id="typing-indicator" aria-live="polite" style="display:none; padding:0.15rem 1rem; min-height:1.2em; color:var(--text-muted); font-size:0.75rem;"></div>
 
       <div class="chat-input-area">
         <button type="button" id="chat-gif-plus" class="chat-gif-plus" title="Enviar GIF" aria-label="Abrir seletor de GIFs">+</button>
@@ -2196,6 +2197,7 @@
     const contactListEl = document.getElementById('contact-list');
     const chatMessagesEl = document.getElementById('chat-messages');
     const messageInput = document.getElementById('message-input');
+    const typingIndicatorEl = document.getElementById('typing-indicator');
     const btnSend = document.getElementById('btn-send');
     const voiceControlsEl = document.getElementById('voice-controls');
     const btnMuteMic = document.getElementById('btn-mute-mic');
@@ -2518,6 +2520,7 @@
         document.querySelectorAll(selector).forEach((host) => {
           window.__clustercordApplyFrame?.(host, data);
         });
+        if (nick === activeChat?.id || activeChat?.data?.members?.includes(nick)) renderTypingIndicator();
       }, (error) => {
         console.error(`Erro ao acompanhar perfil de ${nick}:`, error);
       });
@@ -2540,6 +2543,113 @@
       } catch(e) {}
       return { nick: nick, photo: '', bio: '' };
     }
+
+    // Indicador de digitação sincronizado pelo perfil de cada participante.
+    let typingIdleTimer = null;
+    let typingExpiryTimer = null;
+    let typingPublishedKey = '';
+    let typingLastPublishedAt = 0;
+    let typingWriteQueue = Promise.resolve();
+    const typingWatchRequests = new Set();
+
+    function typingChatKeyFor(chat = activeChat, channel = activeChannel) {
+      if (!chat) return '';
+      if (chat.type === 'direct') {
+        return `direct:${[currentUser, chat.id].sort().join('_')}`;
+      }
+      return `group:${chat.id}:${channel || 'geral'}`;
+    }
+
+    function queueTypingStatus(chatKey, isTyping) {
+      if (!currentUser || !authenticatedUid || !chatKey) return;
+      const fields = {
+        typingChatKey: isTyping ? chatKey : '',
+        typingAt: serverTimestamp()
+      };
+      typingWriteQueue = typingWriteQueue.catch(() => {}).then(() =>
+        updateDoc(doc(db, 'users', currentUser), fields)
+      ).catch(error => console.warn('Não foi possível atualizar o indicador de digitação:', error));
+    }
+
+    function clearMyTypingStatus(expectedKey = '') {
+      if (typingIdleTimer) clearTimeout(typingIdleTimer);
+      typingIdleTimer = null;
+      const oldKey = typingPublishedKey;
+      if (!oldKey || (expectedKey && oldKey !== expectedKey)) return;
+      typingPublishedKey = '';
+      typingLastPublishedAt = 0;
+      queueTypingStatus(oldKey, false);
+    }
+
+    function refreshTypingProfileWatchers() {
+      if (!activeChat) return;
+      const nicks = activeChat.type === 'direct'
+        ? [activeChat.id]
+        : (Array.isArray(activeChat.data?.members) ? activeChat.data.members : []);
+      nicks.filter(nick => nick && nick !== currentUser).forEach(nick => {
+        if (userProfileUnsubs.has(nick) || typingWatchRequests.has(nick)) return;
+        typingWatchRequests.add(nick);
+        getUserData(nick).finally(() => typingWatchRequests.delete(nick));
+      });
+    }
+
+    function renderTypingIndicator() {
+      if (!typingIndicatorEl) return;
+      refreshTypingProfileWatchers();
+      const chatKey = typingChatKeyFor();
+      if (!chatKey || !activeChat) {
+        typingIndicatorEl.style.display = 'none';
+        typingIndicatorEl.textContent = '';
+        return;
+      }
+
+      const now = Date.now();
+      const nicks = activeChat.type === 'direct'
+        ? [activeChat.id]
+        : (Array.isArray(activeChat.data?.members) ? activeChat.data.members : []);
+      const typingNicks = [...new Set(nicks)].filter(nick => {
+        if (!nick || nick === currentUser) return false;
+        const data = usersCache[nick];
+        if (data?.typingChatKey !== chatKey) return false;
+        const stamp = data.typingAt;
+        const at = stamp?.toMillis ? stamp.toMillis() : (stamp?.seconds ? stamp.seconds * 1000 : 0);
+        return at > 0 && now - at < 25000;
+      });
+      const shortenNick = nick => Array.from(String(nick)).length > 12
+        ? `${Array.from(String(nick)).slice(0, 10).join('')}...`
+        : String(nick);
+
+      let label = '';
+      if (typingNicks.length === 1) {
+        label = `${shortenNick(typingNicks[0])} está digitando...`;
+      } else if (typingNicks.length === 2) {
+        label = `${shortenNick(typingNicks[0])} e ${shortenNick(typingNicks[1])} está digitando...`;
+      } else if (typingNicks.length > 2) {
+        label = 'Vários pessoas digitando...';
+      }
+
+      typingIndicatorEl.textContent = label;
+      typingIndicatorEl.style.display = label ? 'block' : 'none';
+    }
+
+    messageInput.addEventListener('input', () => {
+      const chatKey = typingChatKeyFor();
+      if (!chatKey || !messageInput.value.trim()) {
+        clearMyTypingStatus();
+        return;
+      }
+
+      if (typingPublishedKey && typingPublishedKey !== chatKey) clearMyTypingStatus();
+      if (typingPublishedKey !== chatKey || Date.now() - typingLastPublishedAt >= 15000) {
+        typingPublishedKey = chatKey;
+        typingLastPublishedAt = Date.now();
+        queueTypingStatus(chatKey, true);
+      }
+      if (typingIdleTimer) clearTimeout(typingIdleTimer);
+      typingIdleTimer = setTimeout(() => clearMyTypingStatus(chatKey), 2300);
+    });
+
+    typingExpiryTimer = setInterval(renderTypingIndicator, 2000);
 
     // Referência visual para camadas adicionais; não altera o fluxo original.
     window.__clustercordGetUserData = getUserData;
@@ -2810,6 +2920,7 @@
       setVoiceViewActive(false); // a call continua conectada; só saímos da tela dela
       stopGroupVoicePresence();
       activeChat = { type: 'direct', id: targetNick, name: targetNick };
+      renderTypingIndicator();
       document.getElementById('channels-bar').classList.add('hidden');
       await marcarComoLido(directUnreadKey(targetNick));
       
@@ -2934,6 +3045,7 @@
       lastRenderedPresenceKey = null;
       watchGroupVoicePresence(groupId);
       activeChannel = groupData.channels ? groupData.channels[0] : 'geral';
+      renderTypingIndicator();
       marcarComoLido(channelUnreadKey(groupId, activeChannel));
 
       document.getElementById('active-chat-name').innerText = groupData.name;
@@ -3054,6 +3166,7 @@
         tab.onclick = async () => {
           setVoiceViewActive(false); // não desconecta da call: só mostra o chat de texto
           activeChannel = ch;
+          renderTypingIndicator();
           restoreGroupHeaderSub();
           await marcarComoLido(channelUnreadKey(activeChat.id, ch));
           renderChannels();
@@ -3108,6 +3221,7 @@
     let notifPrevUnread = null;   // null = ainda não leu (a primeira leitura é só referência, sem som)
     let notifLastSoundAt = 0;
     let notifAudioUnlockPending = false;
+    let notifSoundPending = false;
 
     function messageNotifSoundsEnabled() {
       try { return localStorage.getItem('clustercord_notif_sounds') !== 'off'; } catch (e) { return true; }
@@ -3122,15 +3236,20 @@
         // Android WebView e alguns builds Electron podem concluir resume() depois
         // do evento do Firebase. Agenda o mesmo som assim que o contexto destravar.
         if (ctx.state !== 'running') {
+          notifSoundPending = true;
           if (!notifAudioUnlockPending && typeof ctx.resume === 'function') {
             notifAudioUnlockPending = true;
             ctx.resume().then(() => {
               notifAudioUnlockPending = false;
-              if (ctx.state === 'running') playMessageNotificationSound();
+              if (notifSoundPending && ctx.state === 'running') {
+                notifSoundPending = false;
+                playMessageNotificationSound();
+              }
             }).catch(() => { notifAudioUnlockPending = false; });
           }
           return;
         }
+        notifSoundPending = false;
 
         // "plim-plim" curto e agradável (diferente dos sons da call)
         const notes = [[880.00, 0], [1318.51, 0.12]];
@@ -3151,6 +3270,24 @@
         });
       } catch (e) {}
     }
+
+    // No Android WebView, o áudio suspenso pode precisar de outra ação explícita
+    // do usuário. Retoma o contexto com o gesto e toca a notificação que aguardava.
+    function resumePendingNotificationSound() {
+      if (!notifSoundPending) return;
+      unlockVoiceAudio();
+      const ctx = voiceAudioCtx;
+      if (!ctx || typeof ctx.resume !== 'function') return;
+      ctx.resume().then(() => {
+        if (notifSoundPending && ctx.state === 'running') {
+          notifSoundPending = false;
+          playMessageNotificationSound();
+        }
+      }).catch(() => {});
+    }
+    ['pointerdown', 'touchstart', 'click', 'keydown'].forEach(evt => {
+      window.addEventListener(evt, resumePendingNotificationSound, true);
+    });
 
     // O navegador só libera áudio depois de um toque/clique: destrava na primeira interação.
     ['pointerdown', 'keydown', 'touchstart'].forEach(evt => {
@@ -4461,12 +4598,24 @@
     };
 
     let clusterSendSucceeded = false;
+    const pendingMessageSends = new Set();
 
     async function sendMessage(rawText) {
       /* rawText só é string quando vem do anexo de imagem; cliques/Enter chegam como evento. */
       const isRawSend = typeof rawText === 'string';
       const text = (isRawSend ? rawText : messageInput.value).trim();
       if (!text || !activeChat) return;
+
+      const sendKey = JSON.stringify([
+        activeChat.type,
+        activeChat.id,
+        activeChat.type === 'group' ? activeChannel : '',
+        text
+      ]);
+      if (pendingMessageSends.has(sendKey)) return;
+      pendingMessageSends.add(sendKey);
+
+      try {
 
       const msgData = {
         sender: currentUser,
@@ -4537,6 +4686,9 @@
             .filter(member => member !== currentUser)
             .map(member => incrementarNaoLidas(member, unreadKey))
         );
+      }
+      } finally {
+        pendingMessageSends.delete(sendKey);
       }
     }
 
