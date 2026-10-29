@@ -2673,6 +2673,15 @@
       christmas_frame_2026: '-24%'
     };
 
+    // ===== Cluster+ (V5.1, ADITIVO) =====
+    // A moldura Cluster+ não é comprada: só aparece/funciona enquanto o Cluster+ do usuário estiver ativo.
+    CLUSTERSTORE_FRAMES.cluster_plus_frame = '--clustercord-plus-frame-image';
+    CLUSTERSTORE_FRAME_INSETS.cluster_plus_frame = '-9%';
+    function isClusterPlusActive(data) {
+      const until = Number(data?.clusterPlusUntil || 0);
+      return Number.isFinite(until) && until > Date.now();
+    }
+
     // Molduras com prazo de venda. Moldura de Natal: vendida até 25/12/2026 às 23:59:59 (Brasília, UTC-3).
     // Depois disso ninguém mais compra; quem já comprou continua podendo equipar.
     const CLUSTERSTORE_SALE_ENDS = {
@@ -2761,8 +2770,103 @@
       equipFrame: equipClusterstoreFrame
     };
 
+    // ===== Cluster+ (V5.1, ADITIVO) =====
+    const CLUSTER_PLUS_THEMES = ['natal', 'dark', 'white', 'blue', 'pink'];
+
+    // Somente o Criador (Felypex) libera/estende/remove dias de Cluster+ de um usuário.
+    async function grantClusterPlus(rawNick, rawDays) {
+      if (!isClustercordCreator() || !currentUser || !authenticatedUid) return { status: 'forbidden' };
+      const nick = String(rawNick || '').trim();
+      const days = Math.floor(Number(rawDays));
+      if (!nick) return { status: 'invalid-nick' };
+      if (!Number.isFinite(days) || days < 0 || days > 3650) return { status: 'invalid-days' };
+
+      let out = { status: 'error' };
+      const targetRef = doc(db, 'users', nick);
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(targetRef);
+        if (!snap.exists()) { out = { status: 'not-found' }; return; }
+        const data = snap.data() || {};
+
+        if (days === 0) {
+          const revoke = { clusterPlusUntil: 0 };
+          if (data.equippedFrame === 'cluster_plus_frame') revoke.equippedFrame = null;
+          transaction.update(targetRef, revoke);
+          out = { status: 'revoked' };
+          return;
+        }
+
+        const now = Date.now();
+        const current = Number(data.clusterPlusUntil || 0);
+        const stillActive = Number.isFinite(current) && current > now;
+        const until = (stillActive ? current : now) + days * 86400000;
+        transaction.update(targetRef, { clusterPlusUntil: until, clusterPlusGrantedBy: currentUser });
+        out = { status: 'granted', until, extended: stillActive };
+      });
+      return out;
+    }
+
+    // Equipa/desequipa a moldura Cluster+ (só com Cluster+ ativo).
+    async function equipClusterPlusFrame() {
+      if (!currentUser || !authenticatedUid) return 'error';
+      let result = 'error';
+      const userRef = doc(db, 'users', currentUser);
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(userRef);
+        if (!snap.exists()) return;
+        const data = snap.data() || {};
+        if (!isClusterPlusActive(data)) { result = 'not-plus'; return; }
+        if (data.equippedFrame === 'cluster_plus_frame') {
+          transaction.update(userRef, { equippedFrame: null });
+          result = 'unequipped';
+          return;
+        }
+        transaction.update(userRef, { equippedFrame: 'cluster_plus_frame' });
+        result = 'equipped';
+      });
+      return result;
+    }
+
+    // Salva o tema e/ou a cor de mensagem do membro Cluster+.
+    async function saveClusterPlusPrefs(prefs) {
+      if (!currentUser || !authenticatedUid) return 'error';
+      const update = {};
+      if (prefs && 'theme' in prefs) {
+        if (prefs.theme !== null && !CLUSTER_PLUS_THEMES.includes(prefs.theme)) return 'error';
+        update.ccTheme = prefs.theme;
+      }
+      if (prefs && 'msgColor' in prefs) {
+        if (prefs.msgColor !== null && !/^#[0-9a-fA-F]{6}$/.test(String(prefs.msgColor))) return 'error';
+        update.ccMsgColor = prefs.msgColor;
+      }
+      if (!Object.keys(update).length) return 'error';
+
+      let result = 'error';
+      const userRef = doc(db, 'users', currentUser);
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(userRef);
+        if (!snap.exists()) return;
+        if (!isClusterPlusActive(snap.data() || {})) { result = 'not-plus'; return; }
+        transaction.update(userRef, update);
+        result = 'saved';
+      });
+      return result;
+    }
+
+    window.__clustercordClusterPlus = {
+      isActive: isClusterPlusActive,
+      isCreator: () => isClustercordCreator(),
+      getNick: () => currentUser,
+      grant: grantClusterPlus,
+      equipFrame: equipClusterPlusFrame,
+      savePrefs: saveClusterPlusPrefs
+    };
+
     function applyClusterFrame(host, data) {
       if (!host) return;
+      // V5.1: moldura Cluster+ só é exibida enquanto o Cluster+ do dono estiver ativo.
+      if (data?.equippedFrame === 'cluster_plus_frame' && !isClusterPlusActive(data)) data = { ...data, equippedFrame: null };
+      window.__ccPlusPaint?.();
 
       const frameId = data?.equippedFrame;
       const frameVariable = CLUSTERSTORE_FRAMES[frameId];
@@ -4521,6 +4625,14 @@
           if (lastMillis && (nowMillis - lastMillis) < 60000) return;
 
           const currentCoins = Number(data.clustercoins || 0);
+          // V5.1: membros Cluster+ ganham 6x mais Clustercoins (0.5 x 6 = 3.0 por mensagem).
+          if (isClusterPlusActive(data)) {
+            transaction.update(userRef, {
+              clustercoins: Math.round((currentCoins + 0.5 * 6) * 10) / 10,
+              lastClustercoinAt: serverTimestamp()
+            });
+            return;
+          }
           transaction.update(userRef, {
             clustercoins: Math.round((currentCoins + 0.5) * 10) / 10,
             lastClustercoinAt: serverTimestamp()
@@ -4550,6 +4662,14 @@
           if (lastMillis && (Date.now() - lastMillis) < 120000) return;
 
           const currentCoins = Number(data.clustercoins || 0);
+          // V5.1: membros Cluster+ ganham 6x mais Clustercoins também pelo tempo em call.
+          if (isClusterPlusActive(data)) {
+            transaction.update(userRef, {
+              clustercoins: Math.round((currentCoins + 0.5 * 6) * 10) / 10,
+              lastCallClustercoinAt: serverTimestamp()
+            });
+            return;
+          }
           transaction.update(userRef, {
             clustercoins: Math.round((currentCoins + 0.5) * 10) / 10,
             lastCallClustercoinAt: serverTimestamp()
@@ -11538,3 +11658,569 @@
     #app-screen.clustercord-group-layout #voice-controls { grid-row: 5; }
   }
 </style>
+
+<!-- ============================================================================
+     V5.1 (ADITIVO) - Cluster+ ativo (privado).
+     Nada acima foi removido. Este bloco só ACRESCENTA:
+       • campo "Cluster+" (apenas o usuário Felypex) para liberar dias de Cluster+;
+       • moldura Cluster+ na Clusterstore (apenas para quem tem Cluster+);
+       • aba "Temas" (Natal, Dark, White, Blue, Pink) dentro do Cluster+ (apenas membros);
+       • cor de mensagem personalizada (apenas membros);
+       • 6x Clustercoins (aplicado dentro das funções de recompensa, no script principal).
+     ============================================================================ -->
+<style id="clustercord-clusterplus-active-v51">
+  :root {
+    --clustercord-plus-frame-image: url("data:image/png;base64,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");
+  }
+
+  /* ---------- Campo Cluster+ do Felypex (mesmo visual do "Puxar") ---------- */
+  .cc-plus-admin-wrap { display: flex; flex-direction: column; gap: 0.3rem; }
+  .cc-plus-admin-wrap .search-box input.cc-plus-days {
+    flex: 0 0 70px;
+    width: 70px;
+    min-width: 0;
+    text-align: center;
+  }
+  #app-screen .search-box.cc-plus-admin input.cc-plus-nick { min-width: 0; }
+  #app-screen .search-box.cc-plus-admin input.cc-plus-days { flex: 0 0 70px; width: 70px; text-align: center; }
+  .cc-plus-admin .btn-small { white-space: nowrap; background: linear-gradient(135deg, #ffc247, #f59e0b); color: #1a1100; border-color: transparent; font-weight: 800; }
+  .cc-plus-admin-msg { min-height: 0; font-size: 0.72rem; line-height: 1.35; color: var(--text-muted); padding: 0 0.25rem; }
+  .cc-plus-admin-msg:empty { display: none; }
+  .cc-plus-admin-msg.ok { color: #4ade80; }
+  .cc-plus-admin-msg.err { color: #ff7a7a; }
+
+  /* ---------- Moldura Cluster+ ---------- */
+  .cc-plus-frame-card { margin-bottom: 0.8rem; }
+  .cc-plus-frame-preview {
+    background-image: var(--clustercord-plus-frame-image), radial-gradient(circle, rgba(255,194,71,0.16), transparent 68%) !important;
+  }
+  .cc-plus-frame-card {
+    border-color: rgba(255,194,71,0.42) !important;
+    background:
+      linear-gradient(145deg, rgba(255,194,71,0.14), rgba(32,34,44,0.98) 55%),
+      var(--bg-input) !important;
+  }
+  .cc-plus-frame-card .clusterstore-item-price { color: #ffc247; }
+  .cc-plus-badge {
+    display: inline-block;
+    margin-bottom: 0.4rem;
+    padding: 0.18rem 0.55rem;
+    border-radius: 999px;
+    background: rgba(255,194,71,0.16);
+    border: 1px solid rgba(255,194,71,0.4);
+    color: #ffc247;
+    font-size: 0.66rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+  }
+  .cc-plus-frame-card .clusterstore-buy-btn {
+    background: linear-gradient(135deg, #ffc247, #f59e0b);
+    border-color: rgba(255,194,71,0.6);
+    color: #1a1100;
+  }
+  .cc-plus-frame-card .clusterstore-buy-btn.secondary {
+    background: var(--bg-input);
+    color: var(--text-main);
+    border-color: var(--border-color);
+  }
+
+  /* ---------- Painel de membro dentro do Cluster+ ---------- */
+  .cc-plus-member { display: flex; flex-direction: column; gap: 0.8rem; width: min(720px, 100%); flex-shrink: 0; margin: 0; }
+  #clusterplus-view .cc-plus-themes-panel { width: min(720px, 100%); flex-shrink: 0; padding-bottom: 1.6rem; }
+  .cc-plus-member[hidden] { display: none !important; }
+  .cc-plus-status {
+    display: flex; align-items: center; gap: 0.7rem;
+    padding: 0.8rem 1rem;
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(255,194,71,0.16), rgba(255,194,71,0.04));
+    border: 1px solid rgba(255,194,71,0.38);
+    color: var(--text-main);
+    font-size: 0.85rem;
+    line-height: 1.4;
+  }
+  .cc-plus-status b { color: #ffc247; }
+  .cc-plus-status .cc-plus-star { font-size: 1.3rem; color: #ffc247; flex-shrink: 0; }
+  .cc-plus-x6 {
+    margin-left: auto; flex-shrink: 0;
+    padding: 0.2rem 0.55rem; border-radius: 999px;
+    background: rgba(255,194,71,0.18); border: 1px solid rgba(255,194,71,0.45);
+    color: #ffc247; font-weight: 800; font-size: 0.75rem;
+  }
+  .cc-plus-tabs {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+    padding: 4px; border-radius: 12px;
+    background: var(--bg-input); border: 1px solid var(--border-color);
+  }
+  .cc-plus-tabs button {
+    min-height: 40px; border: 0; border-radius: 9px;
+    background: transparent; color: var(--text-muted);
+    font-weight: 700; font-size: 0.85rem; cursor: pointer;
+    touch-action: manipulation; font-family: inherit;
+  }
+  .cc-plus-tabs button.active { background: var(--bg-panel); color: var(--text-main); box-shadow: 0 1px 6px rgba(0,0,0,0.25); }
+
+  /* Aba "Temas": esconde o conteúdo de benefícios e mostra os temas */
+  #clusterplus-view .cc-plus-themes-panel { display: none; }
+  #clusterplus-view.cc-tab-themes .cc-plus-themes-panel { display: block; }
+  #clusterplus-view.cc-tab-themes .cp-benefits,
+  #clusterplus-view.cc-tab-themes .cp-foot,
+  #clusterplus-view.cc-tab-themes .cp-notice { display: none !important; }
+  #clusterplus-view.cc-is-member .cp-cta-wrap { display: none !important; }
+
+  .cc-plus-section-title {
+    margin: 0.2rem 0 0.7rem;
+    font-size: 0.72rem; font-weight: 800; letter-spacing: 0.08em;
+    color: var(--text-muted); text-transform: uppercase;
+  }
+  .cc-theme-grid {
+    display: grid; gap: 0.7rem;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+  .cc-theme-card {
+    position: relative; display: flex; flex-direction: column; gap: 0.5rem;
+    padding: 0.7rem; border-radius: 14px; text-align: left; cursor: pointer;
+    background: var(--bg-input); border: 2px solid var(--border-color);
+    color: var(--text-main); font-family: inherit;
+    touch-action: manipulation; transition: border-color 0.15s, transform 0.15s;
+  }
+  .cc-theme-card:hover { transform: translateY(-1px); }
+  .cc-theme-card.active { border-color: #ffc247; }
+  .cc-theme-card.active::after {
+    content: '✓'; position: absolute; top: 8px; right: 10px;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #ffc247; color: #1a1100; font-weight: 900; font-size: 0.75rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .cc-theme-swatch {
+    height: 62px; border-radius: 10px; overflow: hidden;
+    display: grid; grid-template-columns: 26% 1fr; border: 1px solid rgba(128,128,128,0.35);
+  }
+  .cc-theme-swatch i { display: block; }
+  .cc-theme-swatch .cc-sw-chat { display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 0 10px; }
+  .cc-theme-swatch .cc-sw-chat span { display: block; height: 7px; border-radius: 4px; }
+  .cc-theme-name { font-weight: 800; font-size: 0.9rem; }
+
+  .cc-color-row { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+  .cc-color-dot {
+    width: 38px; height: 38px; border-radius: 50%; cursor: pointer;
+    border: 3px solid transparent; outline: 1px solid var(--border-color);
+    touch-action: manipulation; padding: 0;
+  }
+  .cc-color-dot.active { border-color: var(--bg-panel); outline: 2px solid #ffc247; }
+  .cc-color-dot.none {
+    background: var(--bg-input); color: var(--text-muted); font-size: 0.7rem; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .cc-color-preview {
+    margin-top: 0.8rem; padding: 0.7rem 0.9rem; border-radius: 12px;
+    background: var(--bg-input); border: 1px solid var(--border-color);
+    font-size: 0.92rem; color: var(--text-main);
+  }
+  .cc-plus-hint { margin-top: 0.6rem; font-size: 0.72rem; color: var(--text-muted); line-height: 1.45; }
+  .cc-plus-save-note { min-height: 1.1em; margin-top: 0.5rem; font-size: 0.74rem; color: var(--text-muted); }
+  .cc-plus-save-note.err { color: #ff7a7a; }
+
+  /* "Em breve" vira "Ativo" para os benefícios já liberados aos membros */
+  .cp-soon.cc-active { background: rgba(74,222,128,0.16) !important; color: #4ade80 !important; border-color: rgba(74,222,128,0.4) !important; }
+
+  /* ---------- Cor de mensagem personalizada (só de quem tem Cluster+) ---------- */
+  .message-wrapper.cc-mc .message-bubble { color: var(--cc-mc) !important; }
+  .message-wrapper.cc-mc .message-bubble * { color: inherit; }
+  @media (min-width: 701px) {
+    .message-wrapper.cc-mc .message-bubble { background: var(--bg-input) !important; }
+  }
+
+  /* ================== TEMAS (variáveis; nada do layout muda) ================== */
+  html[data-cc-theme="natal"] {
+    --bg-dark: #0b1a12; --bg-panel: #10261a; --bg-chat: #143020; --bg-input: #1e432f;
+    --accent-blue: #e63946; --accent-danger: #ff8a5c;
+    --text-main: #fff6ee; --text-muted: #a8c8b3; --border-color: #2c5e41;
+  }
+  html[data-cc-theme="dark"] {
+    --bg-dark: #000000; --bg-panel: #07070a; --bg-chat: #0c0c10; --bg-input: #15151b;
+    --accent-blue: #0088ff; --accent-danger: #ff4d4d;
+    --text-main: #f2f3f5; --text-muted: #8a8d93; --border-color: #1c1c24;
+  }
+  html[data-cc-theme="white"] {
+    --bg-dark: #e6e9ee; --bg-panel: #ffffff; --bg-chat: #f5f6f8; --bg-input: #e9ecf1;
+    --accent-blue: #0a84ff; --accent-danger: #e03131;
+    --text-main: #14171c; --text-muted: #59606b; --border-color: #d3d8df;
+  }
+  html[data-cc-theme="blue"] {
+    --bg-dark: #050f20; --bg-panel: #0a1a33; --bg-chat: #0d2243; --bg-input: #153261;
+    --accent-blue: #3aa0ff; --accent-danger: #ff6b6b;
+    --text-main: #eaf3ff; --text-muted: #8fa9cc; --border-color: #1d4075;
+  }
+  html[data-cc-theme="pink"] {
+    --bg-dark: #1a0a14; --bg-panel: #250e1c; --bg-chat: #2f1424; --bg-input: #43193a;
+    --accent-blue: #ff5fa8; --accent-danger: #ff6b6b;
+    --text-main: #fff0f7; --text-muted: #c99ab3; --border-color: #5a2145;
+  }
+  html[data-cc-theme] body { background: var(--bg-dark); color: var(--text-main); }
+  html[data-cc-theme] .clusterstore-item-card,
+  html[data-cc-theme] .clusterstore-hero { border-color: color-mix(in srgb, var(--accent-blue) 30%, transparent); }
+  html[data-cc-theme] .clusterstore-item-price { color: var(--accent-blue); }
+  html[data-cc-theme] .cc-plus-frame-card .clusterstore-item-price { color: #ffc247; }
+
+  /* Cabeçalhos das telas Cluster+ e Clusterstore (eram fixos em escuro) seguem o tema */
+  html[data-cc-theme] .cp-header,
+  html[data-cc-theme] .clusterstore-header { background: var(--bg-panel); background: color-mix(in srgb, var(--bg-panel) 94%, transparent); }
+  html[data-cc-theme="white"] .cp-header h1,
+  html[data-cc-theme="white"] .clusterstore-header h1,
+  html[data-cc-theme="white"] .cp-hero-name { color: var(--text-main); }
+
+  /* Tema White: textos que o app fixa em branco passam a seguir o tema */
+  html[data-cc-theme="white"] input,
+  html[data-cc-theme="white"] textarea,
+  html[data-cc-theme="white"] select { color: var(--text-main) !important; }
+  html[data-cc-theme="white"] input::placeholder,
+  html[data-cc-theme="white"] textarea::placeholder { color: var(--text-muted); }
+  html[data-cc-theme="white"] .message-wrapper .message-bubble { color: var(--text-main); }
+  html[data-cc-theme="white"] .message-wrapper.cc-mc .message-bubble { color: var(--cc-mc) !important; }
+
+  /* Neve suave do tema Natal (leve, só decorativa, não bloqueia toques) */
+  @keyframes cc-snow-fall { from { transform: translateY(0); } to { transform: translateY(240px); } }
+  html[data-cc-theme="natal"] body::after {
+    content: ''; position: fixed; left: 0; right: 0; top: -240px; height: calc(100% + 240px);
+    pointer-events: none; z-index: 9990; opacity: 0.55;
+    background-image:
+      radial-gradient(2px 2px at 20px 30px, #fff, transparent),
+      radial-gradient(2.5px 2.5px at 90px 120px, #fff, transparent),
+      radial-gradient(1.5px 1.5px at 160px 60px, #fff, transparent),
+      radial-gradient(2px 2px at 210px 190px, #fff, transparent);
+    background-size: 240px 240px;
+    animation: cc-snow-fall 14s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html[data-cc-theme="natal"] body::after { animation: none; }
+  }
+
+  @media (max-width: 700px) {
+    .cc-theme-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cc-plus-status { font-size: 0.8rem; }
+    .cc-plus-admin-wrap .search-box input.cc-plus-days { flex-basis: 64px; width: 64px; }
+    #app-screen .search-box.cc-plus-admin input.cc-plus-days { flex-basis: 64px; width: 64px; }
+  }
+</style>
+
+<script id="clustercord-clusterplus-active-v51-js">
+(() => {
+  'use strict';
+
+  const PLUS_FRAME_ID = 'cluster_plus_frame';
+  const CACHE_KEY = 'cc_plus_theme_cache';
+  const THEMES = [
+    { id: 'natal', name: 'Natal 🎄', bar: '#0b1a12', panel: '#10261a', chat: '#143020', accent: '#e63946', line: '#a8c8b3' },
+    { id: 'dark',  name: 'Dark',     bar: '#000000', panel: '#07070a', chat: '#0c0c10', accent: '#0088ff', line: '#8a8d93' },
+    { id: 'white', name: 'White',    bar: '#e6e9ee', panel: '#ffffff', chat: '#f5f6f8', accent: '#0a84ff', line: '#59606b' },
+    { id: 'blue',  name: 'Blue',     bar: '#050f20', panel: '#0a1a33', chat: '#0d2243', accent: '#3aa0ff', line: '#8fa9cc' },
+    { id: 'pink',  name: 'Pink',     bar: '#1a0a14', panel: '#250e1c', chat: '#2f1424', accent: '#ff5fa8', line: '#c99ab3' }
+  ];
+  const THEME_IDS = THEMES.map(t => t.id);
+  const COLORS = ['#ff4d6d', '#ff9f1c', '#e6b800', '#12b76a', '#2ec4b6', '#3a86ff', '#8338ec', '#e91e8c'];
+
+  const metaTheme = document.querySelector('meta[name="theme-color"]');
+  const metaOriginal = metaTheme ? metaTheme.getAttribute('content') : null;
+  const api = () => window.__clustercordClusterPlus || null;
+  const profile = () => window.__clustercordUserProfile || null;
+  const isActive = (data) => !!(api() && data && api().isActive(data));
+
+  /* ---------- Tema ---------- */
+  function applyTheme(id) {
+    const root = document.documentElement;
+    const theme = THEMES.find(t => t.id === id);
+    if (theme) {
+      root.setAttribute('data-cc-theme', theme.id);
+      if (metaTheme) metaTheme.setAttribute('content', theme.bar);
+    } else {
+      root.removeAttribute('data-cc-theme');
+      if (metaTheme && metaOriginal !== null) metaTheme.setAttribute('content', metaOriginal);
+    }
+  }
+
+  // Aplica logo de início o tema guardado neste aparelho (só enquanto o Cluster+ ainda valer).
+  try {
+    const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+    if (cached && THEME_IDS.includes(cached.theme) && Number(cached.until) > Date.now()) applyTheme(cached.theme);
+  } catch (e) { /* sem cache */ }
+
+  /* ---------- Painel dentro do Cluster+ ---------- */
+  const view = document.getElementById('clusterplus-view');
+  const content = view ? view.querySelector('.cp-content') : null;
+  let memberBox = null;
+  let themesPanel = null;
+  let statusEl = null;
+  let saveNote = null;
+
+  function buildMemberUi() {
+    if (!view || !content || memberBox) return;
+
+    memberBox = document.createElement('div');
+    memberBox.className = 'cc-plus-member';
+    memberBox.hidden = true;
+    memberBox.innerHTML =
+      '<div class="cc-plus-status"><span class="cc-plus-star" aria-hidden="true">★</span><span class="cc-plus-status-text"></span><span class="cc-plus-x6">6x ativo</span></div>' +
+      '<div class="cc-plus-tabs" role="tablist" aria-label="Seções do Cluster+">' +
+        '<button type="button" role="tab" data-cc-tab="benefits" class="active">Benefícios</button>' +
+        '<button type="button" role="tab" data-cc-tab="themes">Temas</button>' +
+      '</div>';
+    statusEl = memberBox.querySelector('.cc-plus-status-text');
+
+    themesPanel = document.createElement('div');
+    themesPanel.className = 'cc-plus-themes-panel';
+    themesPanel.hidden = false;
+    let html = '<div class="cc-plus-section-title">Temas</div><div class="cc-theme-grid">';
+    html += '<button type="button" class="cc-theme-card" data-cc-theme-pick="">' +
+      '<div class="cc-theme-swatch" style="grid-template-columns:1fr;background:linear-gradient(135deg,#0a0a0c,#20222c);"></div>' +
+      '<div class="cc-theme-name">Padrão</div></button>';
+    THEMES.forEach(t => {
+      html += '<button type="button" class="cc-theme-card" data-cc-theme-pick="' + t.id + '">' +
+        '<div class="cc-theme-swatch" style="background:' + t.chat + '">' +
+          '<i style="background:' + t.panel + '"></i>' +
+          '<div class="cc-sw-chat"><span style="background:' + t.accent + ';width:70%"></span><span style="background:' + t.line + ';width:45%;opacity:.7"></span></div>' +
+        '</div><div class="cc-theme-name">' + t.name + '</div></button>';
+    });
+    html += '</div>';
+    html += '<div class="cc-plus-section-title" style="margin-top:1.3rem">Cor das mensagens</div><div class="cc-color-row">';
+    html += '<button type="button" class="cc-color-dot none" data-cc-color="" aria-label="Cor padrão">Pad.</button>';
+    COLORS.forEach(c => { html += '<button type="button" class="cc-color-dot" data-cc-color="' + c + '" aria-label="Cor ' + c + '" style="background:' + c + '"></button>'; });
+    html += '</div><div class="cc-color-preview" id="cc-color-preview">Assim as suas mensagens aparecem para todos.</div>';
+    html += '<div class="cc-plus-save-note" role="status" aria-live="polite"></div>';
+    html += '<p class="cc-plus-hint">Tema e cor ficam salvos na sua conta e acompanham você no site, no app do PC (.exe) e no celular (APK).</p>';
+    themesPanel.innerHTML = html;
+    saveNote = themesPanel.querySelector('.cc-plus-save-note');
+
+    const hero = content.querySelector('.cp-hero');
+    if (hero && hero.nextSibling) {
+      content.insertBefore(memberBox, hero.nextSibling);
+      content.insertBefore(themesPanel, memberBox.nextSibling);
+    } else {
+      content.insertBefore(memberBox, content.firstChild);
+      content.insertBefore(themesPanel, memberBox.nextSibling);
+    }
+
+    memberBox.querySelector('.cc-plus-tabs').addEventListener('click', (event) => {
+      const btn = event.target.closest('button[data-cc-tab]');
+      if (btn) setTab(btn.dataset.ccTab);
+    });
+
+    themesPanel.addEventListener('click', async (event) => {
+      const themeBtn = event.target.closest('[data-cc-theme-pick]');
+      const colorBtn = event.target.closest('[data-cc-color]');
+      if (!themeBtn && !colorBtn) return;
+      if (!isActive(profile())) return;
+      saveNote.classList.remove('err');
+      saveNote.textContent = 'Salvando...';
+      let result = 'error';
+      try {
+        if (themeBtn) {
+          const id = themeBtn.dataset.ccThemePick || null;
+          applyTheme(id);                           // resposta imediata
+          result = await api().savePrefs({ theme: id });
+        } else {
+          const color = colorBtn.dataset.ccColor || null;
+          result = await api().savePrefs({ msgColor: color });
+        }
+      } catch (e) { result = 'error'; }
+      if (result === 'saved') saveNote.textContent = 'Salvo ✓';
+      else {
+        saveNote.classList.add('err');
+        saveNote.textContent = result === 'not-plus' ? 'Seu Cluster+ não está ativo.' : 'Não foi possível salvar agora. Tente de novo.';
+      }
+      sync();
+    });
+  }
+
+  function setTab(name) {
+    if (!view || !memberBox) return;
+    view.classList.toggle('cc-tab-themes', name === 'themes');
+    memberBox.querySelectorAll('[data-cc-tab]').forEach(b => {
+      const on = b.dataset.ccTab === name;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    if (content) content.scrollTop = 0;
+  }
+
+  const ACTIVE_BENEFITS = ['Tema personalizado', '6x mais Clustercoins', 'Moldura Cluster+', 'Cor de mensagem personalizada'];
+  function syncBenefitBadges(active) {
+    if (!view) return;
+    view.querySelectorAll('.cp-benefit-title').forEach(title => {
+      const label = title.firstChild ? String(title.firstChild.textContent || '').trim() : '';
+      const soon = title.querySelector('.cp-soon');
+      if (!soon || !ACTIVE_BENEFITS.includes(label)) return;
+      if (!soon.dataset.ccOriginal) soon.dataset.ccOriginal = soon.textContent;
+      soon.textContent = active ? 'Ativo' : soon.dataset.ccOriginal;
+      soon.classList.toggle('cc-active', active);
+    });
+  }
+
+  /* ---------- Moldura Cluster+ na Clusterstore (só para membros) ---------- */
+  let frameCard = null;
+  function syncStoreCard(active, data) {
+    const list = document.querySelector('#clusterstore-view .clusterstore-items');
+    if (!list) return;
+    if (!active) { if (frameCard) { frameCard.remove(); frameCard = null; } return; }
+    if (!frameCard) {
+      frameCard = document.createElement('div');
+      frameCard.className = 'clusterstore-item-card cc-plus-frame-card';
+      frameCard.id = 'clusterstore-plus-frame-item';
+      frameCard.innerHTML =
+        '<div class="clusterstore-frame-preview cc-plus-frame-preview" aria-label="Prévia da Moldura Cluster+"></div>' +
+        '<div class="clusterstore-item-info">' +
+          '<div class="cc-plus-badge">★ EXCLUSIVA CLUSTER+</div>' +
+          '<div class="clusterstore-item-title">Moldura Cluster+</div>' +
+          '<div class="clusterstore-item-sub">A moldura dourada dos membros Cluster+: coroa, estrela e selo de verificado sobre a sua foto de perfil, visível para todos os usuários.</div>' +
+          '<div class="clusterstore-item-price">★ Incluída no seu Cluster+</div>' +
+        '</div>' +
+        '<div class="clusterstore-item-actions"><button type="button" class="clusterstore-buy-btn" id="clusterstore-plus-frame-action">Equipar moldura</button></div>';
+      const title = list.querySelector('.clusterstore-items-title');
+      if (title && title.nextSibling) list.insertBefore(frameCard, title.nextSibling);
+      else list.insertBefore(frameCard, list.firstChild);
+
+      const btn = frameCard.querySelector('button');
+      btn.addEventListener('click', async () => {
+        if (btn.disabled) return;
+        btn.disabled = true;
+        const wasOn = (profile() || {}).equippedFrame === PLUS_FRAME_ID;
+        btn.textContent = wasOn ? 'Desequipando...' : 'Equipando...';
+        let result = 'error';
+        try { result = await api().equipFrame(); } catch (e) { result = 'error'; }
+        btn.disabled = false;
+        if (result === 'not-plus') alert('Seu Cluster+ não está ativo.');
+        else if (result === 'error') alert('Não foi possível equipar a moldura agora. Tente novamente.');
+        sync();
+      });
+    }
+    const btn = frameCard.querySelector('button');
+    const equipped = (data || {}).equippedFrame === PLUS_FRAME_ID;
+    if (!btn.disabled || btn.textContent.indexOf('...') === -1) {
+      btn.textContent = equipped ? '✓ Equipado' : 'Equipar moldura';
+      btn.classList.toggle('secondary', !equipped);
+    }
+  }
+
+  /* ---------- Campo "Cluster+" do Felypex (só ele enxerga) ---------- */
+  let adminWrap = null;
+  function syncAdminField() {
+    const allowed = !!(api() && api().isCreator());
+    if (!allowed) { if (adminWrap) { adminWrap.remove(); adminWrap = null; } return; }
+    if (adminWrap) return;
+    const anchor = document.querySelector('#app-screen .actions-bar .search-box');
+    if (!anchor || !anchor.parentNode) return;
+
+    adminWrap = document.createElement('div');
+    adminWrap.className = 'cc-plus-admin-wrap';
+    adminWrap.innerHTML =
+      '<div class="search-box cc-plus-admin">' +
+        '<input type="text" class="cc-plus-nick" id="cc-plus-nick" placeholder="Cluster+ do Nick..." autocomplete="off" autocapitalize="none" spellcheck="false">' +
+        '<input type="number" class="cc-plus-days" id="cc-plus-days" placeholder="Dias" min="0" max="3650" step="1" inputmode="numeric">' +
+        '<button type="button" class="btn-small" id="btn-cc-plus-grant">Cluster+</button>' +
+      '</div>' +
+      '<div class="cc-plus-admin-msg" id="cc-plus-admin-msg" role="status" aria-live="polite"></div>';
+    anchor.parentNode.insertBefore(adminWrap, anchor.nextSibling);
+
+    const nickEl = adminWrap.querySelector('#cc-plus-nick');
+    const daysEl = adminWrap.querySelector('#cc-plus-days');
+    const btn = adminWrap.querySelector('#btn-cc-plus-grant');
+    const msg = adminWrap.querySelector('#cc-plus-admin-msg');
+    const say = (text, kind) => { msg.textContent = text; msg.className = 'cc-plus-admin-msg' + (kind ? ' ' + kind : ''); };
+
+    const run = async () => {
+      if (!api() || !api().isCreator()) return;
+      const nick = nickEl.value.trim();
+      const days = Number(daysEl.value);
+      if (!nick) { say('Digite o nick do usuário.', 'err'); return; }
+      if (!Number.isInteger(days) || days < 0 || days > 3650) { say('Informe os dias (1 a 3650). Use 0 para remover o Cluster+.', 'err'); return; }
+      if (days === 0 && !confirm('Remover o Cluster+ de "' + nick + '"?')) return;
+      btn.disabled = true;
+      say('Aplicando...');
+      let result = { status: 'error' };
+      try { result = await api().grant(nick, days); } catch (e) { console.error('Erro ao liberar Cluster+:', e); }
+      btn.disabled = false;
+      const fmt = (ms) => new Date(ms).toLocaleDateString('pt-BR');
+      if (result.status === 'granted') {
+        say((result.extended ? 'Cluster+ estendido' : 'Cluster+ liberado') + ' para ' + nick + ' até ' + fmt(result.until) + '.', 'ok');
+        nickEl.value = ''; daysEl.value = '';
+      } else if (result.status === 'revoked') { say('Cluster+ removido de ' + nick + '.', 'ok'); nickEl.value = ''; daysEl.value = ''; }
+      else if (result.status === 'not-found') say('Usuário não encontrado!', 'err');
+      else if (result.status === 'forbidden') say('Sem permissão.', 'err');
+      else if (result.status === 'invalid-days') say('Dias inválidos.', 'err');
+      else say('Não foi possível salvar. Confira as regras (Firestore) do Felypex e tente de novo.', 'err');
+    };
+    btn.addEventListener('click', run);
+    [nickEl, daysEl].forEach(el => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } }));
+  }
+
+  /* ---------- Cor de mensagem (aparece para todos, só de quem tem Cluster+) ---------- */
+  let paintQueued = false;
+  function paintMessages() {
+    paintQueued = false;
+    const chat = document.getElementById('chat-messages');
+    if (!chat) return;
+    const cache = window.__clustercordUserProfiles || {};
+    chat.querySelectorAll('.message-wrapper').forEach(wrapper => {
+      const avatar = wrapper.querySelector('.msg-avatar[data-clustercord-avatar-nick]');
+      const nick = avatar ? avatar.dataset.clustercordAvatarNick : '';
+      const me = profile();
+      const data = nick && me && (me.nick === nick || (api() && api().getNick() === nick)) ? me : cache[nick];
+      const color = data && isActive(data) && /^#[0-9a-fA-F]{6}$/.test(String(data.ccMsgColor || '')) ? data.ccMsgColor : '';
+      if (color) { wrapper.classList.add('cc-mc'); wrapper.style.setProperty('--cc-mc', color); }
+      else if (wrapper.classList.contains('cc-mc')) { wrapper.classList.remove('cc-mc'); wrapper.style.removeProperty('--cc-mc'); }
+    });
+  }
+  window.__ccPlusPaint = function () {
+    if (paintQueued) return;
+    paintQueued = true;
+    (window.requestAnimationFrame || setTimeout)(paintMessages);
+  };
+
+  const chatEl = document.getElementById('chat-messages');
+  if (chatEl && window.MutationObserver) {
+    new MutationObserver(() => window.__ccPlusPaint()).observe(chatEl, { childList: true, subtree: true });
+  }
+
+  /* ---------- Sincronização geral ---------- */
+  function sync() {
+    const data = profile();
+    const active = isActive(data);
+
+    buildMemberUi();
+    syncAdminField();
+    syncStoreCard(active, data);
+    syncBenefitBadges(active);
+
+    if (view) view.classList.toggle('cc-is-member', active);
+    if (memberBox) {
+      memberBox.hidden = !active;
+      if (!active) { view.classList.remove('cc-tab-themes'); }
+    }
+    if (themesPanel) themesPanel.style.display = '';
+
+    if (active && data) {
+      const until = Number(data.clusterPlusUntil);
+      const days = Math.max(1, Math.ceil((until - Date.now()) / 86400000));
+      if (statusEl) statusEl.innerHTML = '<b>Cluster+ ativo</b> • ' + days + (days === 1 ? ' dia restante' : ' dias restantes') + ' (até ' + new Date(until).toLocaleDateString('pt-BR') + ')';
+      const theme = THEME_IDS.includes(data.ccTheme) ? data.ccTheme : null;
+      applyTheme(theme);
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify({ theme: theme, until: until })); } catch (e) { /* sem storage */ }
+      if (themesPanel) {
+        themesPanel.querySelectorAll('[data-cc-theme-pick]').forEach(b => b.classList.toggle('active', (b.dataset.ccThemePick || null) === theme));
+        const color = /^#[0-9a-fA-F]{6}$/.test(String(data.ccMsgColor || '')) ? data.ccMsgColor : '';
+        themesPanel.querySelectorAll('[data-cc-color]').forEach(b => b.classList.toggle('active', (b.dataset.ccColor || '') === color));
+        const prev = themesPanel.querySelector('#cc-color-preview');
+        if (prev) prev.style.color = color || '';
+      }
+    } else if (data) {
+      // Perfil carregado e sem Cluster+ (nunca teve ou expirou): volta ao visual padrão.
+      applyTheme(null);
+      try { localStorage.removeItem(CACHE_KEY); } catch (e) { /* sem storage */ }
+    }
+    window.__ccPlusPaint();
+  }
+
+  window.addEventListener('clustercord-profile-updated', sync);
+  setInterval(sync, 60000);   // percebe a expiração mesmo sem nenhuma atualização do perfil
+  sync();
+})();
+</script>
