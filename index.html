@@ -200,7 +200,8 @@
     @keyframes ccSpDrift2 { to { transform: translate3d(-12%, -12%, 0) scale(1.1); } }
     @keyframes ccSpOut { 0% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.06); } }
 
-    @media (prefers-reduced-motion: reduce) {
+    /* V5.2: animações sempre ligadas (o "reduzir movimento" do Android/Windows apagava a tela de carregamento, o foguinho e a neve) */
+  @media (prefers-reduced-motion: reduce) and (min-width: 100000px) {
       #cc-splash .cc-sp-blob, #cc-splash .cc-sp-p, #cc-splash .cc-sp-orbit, #cc-splash .cc-sp-pulse { display: none; }
       #cc-splash .cc-sp-img, #cc-splash .cc-sp-fill::after, #cc-splash .cc-sp-dots i { animation: none; }
       #cc-splash .cc-sp-title span { animation: none; opacity: 1; transform: none; }
@@ -1692,6 +1693,20 @@
                 <div class="cp-benefit-sub">Dê às suas mensagens a cor que é a sua cara.</div>
               </div>
             </li>
+            <li class="cp-benefit">
+              <div class="cp-benefit-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3.5"/><circle cx="9" cy="10" r="1.7"/><path d="M21 16.5l-5-5-9 8.5"/></svg></div>
+              <div>
+                <div class="cp-benefit-title">Fundo personalizado <span class="cp-soon">Em breve</span></div>
+                <div class="cp-benefit-sub">Escolha uma foto para o fundo do app. Ela fica salva na sua conta e você pode trocar ou excluir quando quiser.</div>
+              </div>
+            </li>
+            <li class="cp-benefit">
+              <div class="cp-benefit-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="14" height="12" rx="3"/><path d="M17 10.5l4-2.5v8l-4-2.5z"/></svg></div>
+              <div>
+                <div class="cp-benefit-title">Envio de vídeos <span class="cp-soon">Em breve</span></div>
+                <div class="cp-benefit-sub">Mande vídeos nos chats pelo grampo. Só quem tem Cluster+ envia; todo mundo assiste.</div>
+              </div>
+            </li>
           </ul>
         </div>
 
@@ -1833,6 +1848,27 @@
       </div>
       <div class="section-title">Lista de Membros</div>
       <div id="group-members-list" style="max-height: 150px; overflow-y: auto; margin-bottom: 1rem;"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: ENVIAR VÍDEO (Cluster+) -->
+  <div id="video-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <span>Enviar vídeo<b class="cc-vid-tag">Cluster+</b></span>
+        <span class="close-modal" id="close-video-modal" role="button" aria-label="Fechar">✕</span>
+      </div>
+      <div id="video-target" class="attach-info" style="min-height:0; margin-bottom:0.6rem;"></div>
+      <div class="attach-preview">
+        <div class="attach-spinner" id="video-spinner"></div>
+        <video id="video-preview" playsinline controls preload="metadata" hidden></video>
+      </div>
+      <div class="cc-video-progress" id="video-progress" hidden><span id="video-progress-bar"></span></div>
+      <div class="attach-info" id="video-info" role="status" aria-live="polite">Abrindo o vídeo…</div>
+      <div class="attach-actions">
+        <button type="button" class="btn-small btn-secondary" id="video-cancel">Cancelar</button>
+        <button type="button" class="btn-main" id="video-send" disabled>Enviar vídeo</button>
+      </div>
     </div>
   </div>
 
@@ -2853,13 +2889,114 @@
       return result;
     }
 
+    // ===== Cluster+ (V5.2, ADITIVO): fundo personalizado do app + envio de vídeo =====
+    const CC_BG_DATA_RE = /^data:image\/(?:webp|jpeg|png);base64,[A-Za-z0-9+\/=]+$/;
+    const CC_BG_MAX_CHARS = 180000;            // ~130 KB: o perfil é lido por outros usuários, então a foto fica leve
+    const CC_VIDEO_INLINE_MAX_BYTES = 600 * 1024; // reserva: sem Storage, só vídeos bem pequenos vão dentro da mensagem
+    const CC_VIDEO_EXT = { 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov', 'video/x-m4v': 'm4v', 'video/3gpp': '3gp', 'video/ogg': 'ogv' };
+    const ccPlusError = (code, detail) => { const e = new Error(code); e.ccCode = code; e.detail = detail || ''; return e; };
+
+    // Salva (ou troca / exclui) o fundo personalizado e o escurecimento. Só com Cluster+ ativo.
+    async function saveClusterPlusBackground(change) {
+      if (!currentUser || !authenticatedUid || !change) return 'error';
+      const update = {};
+      if ('image' in change) {
+        if (change.image === null) {
+          update.ccBgImage = null;                       // excluir
+        } else {
+          const img = String(change.image || '');
+          if (img.length > CC_BG_MAX_CHARS || !CC_BG_DATA_RE.test(img)) return 'error';
+          update.ccBgImage = img;                        // escolher / trocar
+        }
+      }
+      if ('dim' in change) {
+        const dim = Math.round(Number(change.dim));
+        if (!Number.isFinite(dim) || dim < 0 || dim > 85) return 'error';
+        update.ccBgDim = dim;
+      }
+      if (!Object.keys(update).length) return 'error';
+
+      let result = 'error';
+      const userRef = doc(db, 'users', currentUser);
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(userRef);
+        if (!snap.exists()) return;
+        if (!isClusterPlusActive(snap.data() || {})) { result = 'not-plus'; return; }
+        transaction.update(userRef, update);
+        result = 'saved';
+      });
+      return result;
+    }
+
+    function ccFileToDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error('read'));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // Envia o vídeo para o Firebase Storage (o vídeo NÃO fica dentro do Firestore, para não encher o banco)
+    // e devolve o link. Retorna { promise, cancel } para a barra de progresso e o botão Cancelar.
+    function startClusterVideoUpload(file, onProgress) {
+      let cancelled = false;
+      let task = null;
+
+      const promise = (async () => {
+        if (!currentUser || !authenticatedUid) throw ccPlusError('auth');
+
+        // Confere no servidor (e não só na tela) se o Cluster+ ainda está ativo.
+        const me = await getDoc(doc(db, 'users', currentUser));
+        if (!me.exists() || !isClusterPlusActive(me.data() || {})) throw ccPlusError('not-plus');
+
+        const type = String(file.type || '').toLowerCase();
+        const nameExt = String(file.name || '').split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5);
+        const ext = CC_VIDEO_EXT[type] || nameExt || 'mp4';
+        const contentType = type.indexOf('video/') === 0 ? type : 'video/mp4';
+
+        try {
+          const storageModule = await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js');
+          const storage = storageModule.getStorage(app);
+          const path = 'chatVideos/' + authenticatedUid + '/' + Date.now() + '_' + Math.random().toString(36).slice(2, 8) + '.' + ext;
+          const fileRef = storageModule.ref(storage, path);
+          task = storageModule.uploadBytesResumable(fileRef, file, { contentType, cacheControl: 'public,max-age=31536000' });
+          if (cancelled) task.cancel();
+          await new Promise((resolve, reject) => {
+            task.on('state_changed', (snap) => {
+              if (typeof onProgress === 'function') onProgress(snap.bytesTransferred / Math.max(1, snap.totalBytes));
+            }, reject, resolve);
+          });
+          return { url: await storageModule.getDownloadURL(fileRef), via: 'storage' };
+        } catch (err) {
+          if (cancelled || err?.code === 'storage/canceled') throw ccPlusError('canceled');
+          console.error('Upload do vídeo para o Storage falhou:', err);
+          // Reserva: se o Storage não estiver disponível, vídeo bem pequeno ainda vai dentro da mensagem.
+          if (file.size <= CC_VIDEO_INLINE_MAX_BYTES && /^video\/(?:mp4|webm|ogg)$/.test(type)) {
+            try {
+              const dataUrl = await ccFileToDataUrl(file);
+              if (/^data:video\/(?:mp4|webm|ogg);base64,[A-Za-z0-9+\/=]+$/.test(dataUrl)) return { url: dataUrl, via: 'inline' };
+            } catch (_) { /* cai no erro abaixo */ }
+          }
+          throw ccPlusError('storage-unavailable', err?.code || err?.message || '');
+        }
+      })();
+
+      return {
+        promise,
+        cancel() { cancelled = true; try { task && task.cancel(); } catch (_) { /* já terminou */ } }
+      };
+    }
+
     window.__clustercordClusterPlus = {
       isActive: isClusterPlusActive,
       isCreator: () => isClustercordCreator(),
       getNick: () => currentUser,
       grant: grantClusterPlus,
       equipFrame: equipClusterPlusFrame,
-      savePrefs: saveClusterPlusPrefs
+      savePrefs: saveClusterPlusPrefs,
+      saveBackground: saveClusterPlusBackground,
+      startVideoUpload: startClusterVideoUpload
     };
 
     function applyClusterFrame(host, data) {
@@ -4608,6 +4745,36 @@
       };
     }
 
+    /* Vídeo anexado (V5.2): "[[CLUSTER_VID:LxA]]<link do Firebase Storage>" (ou data URL bem pequeno).
+       Só membros Cluster+ enviam; todo mundo assiste. Só aceita links do bucket do próprio Clustercord. */
+    function getClusterVideo(value) {
+      const text = String(value || '');
+      if (text.length < 30 || text.length > 900000 || text.indexOf('[[CLUSTER_VID') !== 0) return null;
+      const match = /^\[\[CLUSTER_VID(?::(\d{1,4})x(\d{1,4}))?\]\](\S+)$/.exec(text);
+      if (!match) return null;
+
+      const src = match[3];
+      let allowed = false;
+      if (/^data:video\/(?:mp4|webm|ogg);base64,[A-Za-z0-9+\/=]+$/.test(src)) {
+        allowed = true;
+      } else {
+        try {
+          const url = new URL(src);
+          const bucket = String(firebaseConfig.storageBucket || '');
+          allowed = url.protocol === 'https:' &&
+            url.hostname === 'firebasestorage.googleapis.com' &&
+            url.pathname.indexOf('/v0/b/' + bucket + '/o/chatVideos') === 0;
+        } catch (_) { allowed = false; }
+      }
+      if (!allowed) return null;
+
+      return {
+        src,
+        width: match[1] ? Number(match[1]) : 0,
+        height: match[2] ? Number(match[2]) : 0
+      };
+    }
+
     async function awardClustercoin() {
       if (!currentUser || !authenticatedUid) return;
 
@@ -5238,8 +5405,9 @@
           bubble.className = 'message-bubble';
           const storedMessageText = String(msg.text || '');
           const messageImage = getClusterImage(storedMessageText);
-          const messageIsGif = !messageImage && isAllowedGifUrl(storedMessageText);
-          bubble.dataset.messageText = messageImage ? '[Imagem]' : (messageIsGif ? '[GIF]' : storedMessageText);
+          const messageVideo = !messageImage ? getClusterVideo(storedMessageText) : null;
+          const messageIsGif = !messageImage && !messageVideo && isAllowedGifUrl(storedMessageText);
+          bubble.dataset.messageText = messageImage ? '[Imagem]' : (messageVideo ? '[Vídeo]' : (messageIsGif ? '[GIF]' : storedMessageText));
 
           if (messageImage) {
             const photo = document.createElement('img');
@@ -5255,6 +5423,19 @@
               photo.replaceWith(document.createTextNode('Imagem indisponível'));
             });
             bubble.appendChild(photo);
+          } else if (messageVideo) {
+            const clip = document.createElement('video');
+            clip.className = 'message-video';
+            clip.controls = true;
+            clip.playsInline = true;
+            clip.setAttribute('playsinline', '');
+            clip.preload = 'metadata';
+            if (messageVideo.width && messageVideo.height) clip.style.aspectRatio = messageVideo.width + ' / ' + messageVideo.height;
+            clip.src = messageVideo.src + (messageVideo.src.indexOf('data:') === 0 ? '' : '#t=0.1');
+            clip.addEventListener('error', () => {
+              clip.replaceWith(document.createTextNode('Vídeo indisponível'));
+            });
+            bubble.appendChild(clip);
           } else if (messageIsGif) {
             const gif = document.createElement('img');
             gif.className = 'message-gif';
@@ -9530,7 +9711,8 @@
     #message-context-menu { border-radius: 14px !important; }
   }
 
-  @media (max-width: 700px) and (prefers-reduced-motion: reduce) {
+  /* V5.2: animações sempre ligadas (o "reduzir movimento" do Android/Windows apagava a tela de carregamento, o foguinho e a neve) */
+  @media (max-width: 700px) and (prefers-reduced-motion: reduce) and (min-width: 100000px) {
     .modal-overlay > .modal { animation: none; }
   }
 </style>
@@ -10260,7 +10442,8 @@
     #clustercord-tabbar .cc-tab[data-tab="plus"]:active .cc-tab-ico { background: rgba(255,194,71,0.18); }
   }
 
-  @media (prefers-reduced-motion: reduce) {
+  /* V5.2: animações sempre ligadas (o "reduzir movimento" do Android/Windows apagava a tela de carregamento, o foguinho e a neve) */
+  @media (prefers-reduced-motion: reduce) and (min-width: 100000px) {
     .cp-badge { animation: none; }
     .chat-attach-btn, .chat-attach-btn svg, #cc-toast, .cp-cta { transition: none; }
     #attach-modal .attach-spinner { animation-duration: 2s; }
@@ -10914,7 +11097,8 @@
     #streak-modal .st-count { font-size: 2.8rem; }
   }
 
-  @media (prefers-reduced-motion: reduce) {
+  /* V5.2: animações sempre ligadas (o "reduzir movimento" do Android/Windows apagava a tela de carregamento, o foguinho e a neve) */
+  @media (prefers-reduced-motion: reduce) and (min-width: 100000px) {
     .cc-flame, .cc-flame .f-in, #streak-modal .st-flame-big::before { animation: none; }
     #cc-streak-toast, #streak-modal .st-progress > span { transition: none; }
   }
@@ -11442,7 +11626,8 @@
   .cc-switch:focus-visible { outline: 2px solid var(--accent-blue, #0088ff); outline-offset: 3px; }
   .cc-switch:disabled { opacity: 0.6; cursor: wait; }
 
-  @media (prefers-reduced-motion: reduce) {
+  /* V5.2: animações sempre ligadas (o "reduzir movimento" do Android/Windows apagava a tela de carregamento, o foguinho e a neve) */
+  @media (prefers-reduced-motion: reduce) and (min-width: 100000px) {
     .cc-presence-dot, .cc-switch, .cc-switch .cc-switch-knob { transition: none; }
   }
 </style>
@@ -11891,7 +12076,8 @@
     background-size: 240px 240px;
     animation: cc-snow-fall 14s linear infinite;
   }
-  @media (prefers-reduced-motion: reduce) {
+  /* V5.2: animações sempre ligadas (o "reduzir movimento" do Android/Windows apagava a tela de carregamento, o foguinho e a neve) */
+  @media (prefers-reduced-motion: reduce) and (min-width: 100000px) {
     html[data-cc-theme="natal"] body::after { animation: none; }
   }
 
@@ -12042,7 +12228,7 @@
     if (content) content.scrollTop = 0;
   }
 
-  const ACTIVE_BENEFITS = ['Tema personalizado', '6x mais Clustercoins', 'Moldura Cluster+', 'Cor de mensagem personalizada'];
+  const ACTIVE_BENEFITS = ['Tema personalizado', '6x mais Clustercoins', 'Moldura Cluster+', 'Cor de mensagem personalizada', 'Fundo personalizado', 'Envio de vídeos'];
   function syncBenefitBadges(active) {
     if (!view) return;
     view.querySelectorAll('.cp-benefit-title').forEach(title => {
@@ -12222,5 +12408,988 @@
   window.addEventListener('clustercord-profile-updated', sync);
   setInterval(sync, 60000);   // percebe a expiração mesmo sem nenhuma atualização do perfil
   sync();
+})();
+</script>
+
+
+<!-- ============================================================================
+     V5.2 (ADITIVO) - Cluster+: fundo personalizado do app + envio de vídeo + animações sempre ligadas.
+     Nada acima foi removido. Este bloco só ACRESCENTA:
+       • camada de fundo com a foto escolhida pelo membro Cluster+ (salva na conta);
+       • cartão "Fundo do app" (escolher / trocar / excluir / escurecer) na aba Temas e fundo;
+       • menu do grampo (Foto / Vídeo) e vídeo dentro da conversa;
+       • janela de envio de vídeo (só membros Cluster+ enviam; todos assistem).
+     ============================================================================ -->
+<style id="clustercord-clusterplus-v52">
+  /* ---------- Fundo personalizado ---------- */
+  #cc-bg-layer {
+    position: fixed; inset: 0; z-index: 0;
+    pointer-events: none;
+    background-color: transparent;
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.45s ease, visibility 0s linear 0.45s;
+  }
+  #cc-bg-layer::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: rgba(0, 0, 0, var(--cc-bg-dim, 0.45));
+  }
+  html[data-cc-theme="white"] #cc-bg-layer::after { background: rgba(255, 255, 255, var(--cc-bg-dim, 0.45)); }
+  html[data-cc-bg] #cc-bg-layer { opacity: 1; visibility: visible; transition: opacity 0.45s ease, visibility 0s; }
+
+  html[data-cc-bg] #app-screen { position: relative; z-index: 1; background: transparent; }
+  html[data-cc-bg] #app-screen .sidebar,
+  html[data-cc-bg] #app-screen .chat-header,
+  html[data-cc-bg] #app-screen .channels-bar,
+  html[data-cc-bg] #app-screen .chat-input-area {
+    background: rgba(18, 19, 24, 0.74);
+    background: var(--cc-panel-a, rgba(18, 19, 24, 0.74));
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+  }
+  html[data-cc-bg] #app-screen .chat-area,
+  html[data-cc-bg] #app-screen .chat-messages { background: transparent; }
+  html[data-cc-bg] #app-screen.cc-has-tabbar #clustercord-tabbar {
+    background: rgba(10, 10, 12, 0.8);
+    background: var(--cc-dark-a, rgba(10, 10, 12, 0.8));
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+  }
+
+  /* Textos soltos sobre a foto (nome do autor, separador de data, "digitando") ganham uma sombra fina */
+  html[data-cc-bg] #app-screen .msg-author,
+  html[data-cc-bg] #app-screen .message-date-separator,
+  html[data-cc-bg] #app-screen #typing-indicator { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85); }
+  html[data-cc-bg][data-cc-theme="white"] #app-screen .msg-author,
+  html[data-cc-bg][data-cc-theme="white"] #app-screen .message-date-separator,
+  html[data-cc-bg][data-cc-theme="white"] #app-screen #typing-indicator { text-shadow: 0 1px 3px rgba(255, 255, 255, 0.9); }
+
+  /* ---------- Cartão "Fundo do app" (dentro de Cluster+ > Temas e fundo) ---------- */
+  .cc-bg-card { margin-top: 1.3rem; }
+  .cc-bg-preview {
+    position: relative; display: grid; place-items: center;
+    height: 150px; border-radius: 14px; overflow: hidden;
+    border: 2px dashed var(--border-color);
+    background-color: var(--bg-input);
+    background-position: center; background-size: cover; background-repeat: no-repeat;
+    color: var(--text-muted); font-size: 0.85rem; text-align: center; padding: 0 1rem;
+  }
+  .cc-bg-preview.has-img { border-style: solid; border-color: #ffc247; }
+  .cc-bg-preview .cc-bg-dimlayer { position: absolute; inset: 0; background: rgba(0, 0, 0, var(--cc-prev-dim, 0.45)); opacity: 0; }
+  .cc-bg-preview.has-img .cc-bg-dimlayer { opacity: 1; }
+  .cc-bg-preview .cc-bg-preview-text { position: relative; z-index: 1; }
+  .cc-bg-preview.has-img .cc-bg-preview-text {
+    padding: 0.35rem 0.7rem; border-radius: 999px;
+    background: rgba(0, 0, 0, 0.55); color: #fff; font-weight: 700; font-size: 0.78rem;
+  }
+  .cc-bg-preview.busy::before {
+    content: ''; position: absolute; z-index: 2; top: 10px; right: 10px;
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.25); border-top-color: #ffc247;
+    animation: attach-spin 0.8s linear infinite;
+  }
+  .cc-bg-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.7rem; }
+  .cc-bg-btn {
+    min-height: 44px; padding: 0 1.1rem; border-radius: 12px;
+    border: 1px solid var(--border-color); background: var(--bg-input); color: var(--text-main);
+    font-family: inherit; font-weight: 800; font-size: 0.85rem; cursor: pointer; touch-action: manipulation;
+  }
+  .cc-bg-btn.primary { flex: 1 1 160px; background: linear-gradient(135deg, #ffc247, #f59e0b); color: #1a1100; border-color: transparent; }
+  .cc-bg-btn.danger { color: var(--accent-danger); }
+  .cc-bg-btn.danger.armed { background: var(--accent-danger); color: #fff; border-color: transparent; }
+  .cc-bg-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .cc-bg-btn[hidden] { display: none; }
+  .cc-bg-dim { display: flex; align-items: center; gap: 0.8rem; margin-top: 0.9rem; font-size: 0.8rem; color: var(--text-muted); }
+  .cc-bg-dim[hidden] { display: none; }
+  .cc-bg-dim input[type="range"] {
+    flex: 1; min-width: 0; width: auto; padding: 0; margin: 0; border: 0; background: transparent;
+    accent-color: #ffc247; min-height: 28px;
+  }
+  .cc-bg-dim output { min-width: 2.8em; text-align: right; font-weight: 800; color: var(--text-main); }
+
+  /* ---------- Menu do grampo (Foto / Vídeo) ---------- */
+  #cc-attach-menu {
+    position: fixed; z-index: 1600; display: none;
+    min-width: 220px; padding: 6px; border-radius: 16px;
+    background: var(--bg-panel); border: 1px solid var(--border-color);
+    box-shadow: 0 14px 38px rgba(0, 0, 0, 0.5);
+  }
+  #cc-attach-menu.open { display: block; animation: cc-menu-in 0.16s ease-out; }
+  @keyframes cc-menu-in { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: none; } }
+  #cc-attach-menu button {
+    display: flex; align-items: center; gap: 0.7rem; width: 100%; min-height: 48px;
+    padding: 0 0.7rem; border: 0; border-radius: 11px; background: transparent;
+    color: var(--text-main); font-family: inherit; font-weight: 700; font-size: 0.9rem;
+    text-align: left; cursor: pointer; touch-action: manipulation;
+  }
+  #cc-attach-menu button:hover, #cc-attach-menu button:focus-visible { background: var(--bg-input); outline: none; }
+  #cc-attach-menu .cc-am-ico {
+    flex: 0 0 32px; width: 32px; height: 32px; border-radius: 10px;
+    display: grid; place-items: center; background: var(--bg-input);
+  }
+  #cc-attach-menu .cc-am-ico svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  #cc-attach-menu .cc-am-tag {
+    margin-left: auto; padding: 0.14rem 0.5rem; border-radius: 999px;
+    background: #ffc247; color: #1a1100; font-size: 0.65rem; font-weight: 800;
+  }
+  #cc-attach-menu button.locked .cc-am-ico { color: #ffc247; }
+
+  /* ---------- Vídeo dentro da conversa ---------- */
+  .message-video {
+    display: block; width: min(320px, 100%); height: auto; max-height: 360px;
+    object-fit: contain; border-radius: 12px; background: #000;
+  }
+  .message-bubble:has(.message-video) { padding: 0.35rem; }
+  @media (max-width: 700px) {
+    .message-video { width: min(260px, 100%); max-height: 320px; }
+    #app-screen .message-bubble .message-video { border-radius: 14px; }
+  }
+
+  /* ---------- Janela de envio de vídeo ---------- */
+  #video-modal { z-index: 1500; }
+  #video-modal .modal-header b.cc-vid-tag {
+    margin-left: 0.5rem; padding: 0.12rem 0.5rem; border-radius: 999px;
+    background: #ffc247; color: #1a1100; font-size: 0.65rem; font-weight: 800; vertical-align: middle;
+  }
+  #video-modal .attach-preview {
+    position: relative; min-height: 160px; max-height: min(46dvh, 360px); margin-bottom: 0.8rem;
+    display: grid; place-items: center; overflow: hidden; border-radius: 12px;
+    background: #000; border: 1px solid var(--border-color);
+  }
+  #video-modal .attach-preview video { display: block; max-width: 100%; max-height: min(46dvh, 360px); }
+  #video-modal .attach-preview video[hidden] { display: none; }
+  #video-modal .attach-spinner {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 3px solid rgba(255, 255, 255, 0.12); border-top-color: var(--accent-blue);
+    animation: attach-spin 0.8s linear infinite;
+  }
+  #video-modal .attach-spinner[hidden] { display: none; }
+  #video-modal .attach-info {
+    min-height: 2.6em; margin-bottom: 0.9rem; color: var(--text-muted);
+    font-size: 0.8rem; line-height: 1.45; text-align: center;
+  }
+  #video-modal .attach-info.error { color: var(--accent-danger); }
+  .cc-video-progress { height: 8px; margin-bottom: 0.8rem; border-radius: 99px; background: var(--bg-input); overflow: hidden; }
+  .cc-video-progress[hidden] { display: none; }
+  .cc-video-progress span { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #ffc247, #f59e0b); transition: width 0.2s ease; }
+  #video-modal .attach-actions { display: flex; gap: 0.6rem; }
+  #video-modal .attach-actions .btn-small { min-height: 46px; padding: 0 1.1rem; }
+  #video-modal .attach-actions .btn-main { flex: 1; width: auto; min-height: 46px; margin: 0; }
+  #video-modal .attach-actions .btn-main:disabled { opacity: 0.5; cursor: not-allowed; }
+</style>
+
+<script id="clustercord-clusterplus-v52-js">
+(() => {
+  'use strict';
+
+  const root = document.documentElement;
+  const appScreen = document.getElementById('app-screen');
+  const api = () => window.__clustercordClusterPlus || null;
+  const profile = () => window.__clustercordUserProfile || null;
+  const isActive = (data) => !!(api() && data && api().isActive(data));
+  const hasActiveChat = () => !!(window.__clustercordHasActiveChat && window.__clustercordHasActiveChat());
+  const chatName = () => (document.getElementById('active-chat-name')?.textContent || '').trim();
+
+  /* ---------- Aviso rápido (reaproveita o toast do app) ---------- */
+  let toastTimer = null;
+  const toast = (message) => {
+    const el = document.getElementById('cc-toast');
+    if (!el) return;
+    el.textContent = message;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 3600);
+  };
+
+  const openClusterPlus = () => {
+    const btn = document.getElementById('btn-clusterplus');
+    if (btn) btn.click();
+  };
+
+  /* =====================================================================
+     FUNDO PERSONALIZADO DO APP
+     ===================================================================== */
+  const BG_CACHE_KEY = 'cc_plus_bg_cache';
+  const BG_DATA_RE = /^data:image\/(?:webp|jpeg|png);base64,[A-Za-z0-9+\/=]+$/;
+  const BG_TARGET_CHARS = 120000;     // alvo (~90 KB de imagem)
+  const BG_MAX_CHARS = 180000;        // teto aceito pela conta
+  const BG_SIDES = [1280, 1080, 900, 760, 640, 520];
+  const BG_MAX_INPUT_BYTES = 40 * 1024 * 1024;
+  const DEFAULT_DIM = 45;
+
+  const layer = document.createElement('div');
+  layer.id = 'cc-bg-layer';
+  layer.setAttribute('aria-hidden', 'true');
+  document.body.insertBefore(layer, document.body.firstChild);
+
+  let wanted = null;          // { img, dim } desejado pela conta
+  let appliedImg = '';
+
+  const clampDim = (value) => {
+    const n = Number(value);
+    return (typeof value === 'number' && Number.isFinite(n)) ? Math.min(85, Math.max(0, Math.round(n))) : DEFAULT_DIM;
+  };
+
+  function hexToRgb(value) {
+    const match = /^#?([0-9a-f]{6})$/i.exec(String(value || '').trim());
+    if (!match) return null;
+    const n = parseInt(match[1], 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+
+  // Os painéis ficam translúcidos usando as cores do tema atual (sem depender de color-mix).
+  function updateAlphaVars() {
+    const cs = getComputedStyle(root);
+    const panel = hexToRgb(cs.getPropertyValue('--bg-panel')) || [18, 19, 24];
+    const dark = hexToRgb(cs.getPropertyValue('--bg-dark')) || [10, 10, 12];
+    root.style.setProperty('--cc-panel-a', 'rgba(' + panel.join(',') + ',0.74)');
+    root.style.setProperty('--cc-dark-a', 'rgba(' + dark.join(',') + ',0.8)');
+  }
+
+  function clearBackground() {
+    root.removeAttribute('data-cc-bg');
+    root.style.removeProperty('--cc-bg-dim');
+    root.style.removeProperty('--cc-panel-a');
+    root.style.removeProperty('--cc-dark-a');
+    layer.style.backgroundImage = '';
+    appliedImg = '';
+  }
+
+  // Aplica (ou remove) o fundo na tela. Só aparece com o app aberto (nunca sobre o login).
+  function refreshBackground() {
+    const appOpen = !!appScreen && !appScreen.classList.contains('hidden');
+    if (!wanted || !appOpen || !BG_DATA_RE.test(wanted.img || '') || wanted.img.length > BG_MAX_CHARS) {
+      clearBackground();
+      return;
+    }
+    if (wanted.img !== appliedImg) {
+      layer.style.backgroundImage = 'url("' + wanted.img + '")';
+      appliedImg = wanted.img;
+    }
+    root.style.setProperty('--cc-bg-dim', String(clampDim(wanted.dim) / 100));
+    updateAlphaVars();
+    root.setAttribute('data-cc-bg', '1');
+  }
+
+  // Quando o tema muda (Natal, Dark, White...), recalcula a transparência dos painéis.
+  if (window.MutationObserver) {
+    new MutationObserver(() => { if (root.hasAttribute('data-cc-bg')) updateAlphaVars(); })
+      .observe(root, { attributes: true, attributeFilter: ['data-cc-theme'] });
+    if (appScreen) {
+      let wasOpen = !appScreen.classList.contains('hidden');
+      new MutationObserver(() => {
+        const open = !appScreen.classList.contains('hidden');
+        if (wasOpen && !open) {                         // saiu da conta: o fundo não pode passar para a próxima conta
+          wanted = null;
+          try { localStorage.removeItem(BG_CACHE_KEY); } catch (e) { /* ok */ }
+          lastCached = '';
+          if (typeof renderCard === 'function') renderCard();
+        }
+        wasOpen = open;
+        refreshBackground();
+      }).observe(appScreen, { attributes: true, attributeFilter: ['class'] });
+    }
+  }
+
+  // Mostra o fundo guardado neste aparelho logo na abertura (só enquanto o Cluster+ ainda valer).
+  try {
+    if (localStorage.getItem('clustercord_user')) {
+      const cached = JSON.parse(localStorage.getItem(BG_CACHE_KEY) || 'null');
+      if (cached && typeof cached.img === 'string' && Number(cached.until) > Date.now()) {
+        wanted = { img: cached.img, dim: cached.dim };
+      }
+    }
+  } catch (e) { /* sem cache */ }
+  refreshBackground();
+
+  let lastCached = '';
+  function storeCache(data) {
+    try {
+      if (wanted) {
+        const stamp = wanted.img.length + ':' + wanted.img.slice(-24) + ':' + wanted.dim + ':' + (Number(data && data.clusterPlusUntil) || 0);
+        if (stamp === lastCached) return;               // evita regravar a mesma foto a cada atualização do perfil
+        localStorage.setItem(BG_CACHE_KEY, JSON.stringify({ img: wanted.img, dim: wanted.dim, until: Number(data && data.clusterPlusUntil) || 0 }));
+        lastCached = stamp;
+      } else {
+        localStorage.removeItem(BG_CACHE_KEY);
+        lastCached = '';
+      }
+    } catch (e) { /* sem armazenamento / cheio */ }
+  }
+
+  /* ---------- Compressão da foto de fundo ---------- */
+  const supportsWebp = (() => {
+    try {
+      const c = document.createElement('canvas');
+      c.width = c.height = 1;
+      return c.toDataURL('image/webp').indexOf('data:image/webp') === 0;
+    } catch (e) { return false; }
+  })();
+  const BG_MIME = supportsWebp ? 'image/webp' : 'image/jpeg';
+
+  const loadSource = async (file) => {
+    if (window.createImageBitmap) {
+      try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch (e) { /* tenta outro */ }
+      try { return await createImageBitmap(file); } catch (e) { /* tenta <img> */ }
+    }
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode')); };
+      img.src = url;
+    });
+  };
+
+  const canvasDataUrl = (canvas, quality) => {
+    try { return canvas.toDataURL(BG_MIME, quality); } catch (e) { return ''; }
+  };
+
+  async function compressBackground(file) {
+    const src = await loadSource(file);
+    const w = src.naturalWidth || src.width;
+    const h = src.naturalHeight || src.height;
+    let smallest = '';
+    try {
+      for (const side of BG_SIDES) {
+        const scale = Math.min(1, side / Math.max(w, h));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(w * scale));
+        canvas.height = Math.max(1, Math.round(h * scale));
+        const ctx = canvas.getContext('2d');
+        if (BG_MIME === 'image/jpeg') { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(src, 0, 0, canvas.width, canvas.height);
+
+        const high = canvasDataUrl(canvas, 0.8);
+        if (!high) throw new Error('encode');
+        if (!smallest || high.length < smallest.length) smallest = high;
+        if (high.length <= BG_TARGET_CHARS) return high;
+
+        const low = canvasDataUrl(canvas, 0.45);
+        if (low && low.length < smallest.length) smallest = low;
+        if (!low || low.length > BG_TARGET_CHARS) continue;      // ainda grande: diminui as dimensões
+
+        let good = low, loQ = 0.45, hiQ = 0.8;                   // maior qualidade que ainda cabe
+        for (let i = 0; i < 5; i++) {
+          const mid = (loQ + hiQ) / 2;
+          const attempt = canvasDataUrl(canvas, mid);
+          if (attempt && attempt.length <= BG_TARGET_CHARS) { good = attempt; loQ = mid; } else { hiQ = mid; }
+        }
+        return good;
+      }
+    } finally {
+      if (src.close) src.close();
+    }
+    if (smallest && smallest.length <= BG_MAX_CHARS) return smallest;
+    throw new Error('too-big');
+  }
+
+  /* ---------- Cartão "Fundo do app" dentro de Cluster+ ---------- */
+  let card = null, previewEl = null, previewText = null, pickBtn = null, removeBtn = null;
+  let dimWrap = null, dimInput = null, dimOut = null, noteEl = null, fileInput = null;
+  let busy = false, armTimer = null, dimTimer = null;
+
+  const setNote = (text, isError) => {
+    if (!noteEl) return;
+    noteEl.textContent = text || '';
+    noteEl.classList.toggle('err', !!isError);
+  };
+
+  function buildCard() {
+    if (card) return true;
+    const panel = document.querySelector('#clusterplus-view .cc-plus-themes-panel');
+    if (!panel) return false;
+
+    const tabBtn = document.querySelector('#clusterplus-view [data-cc-tab="themes"]');
+    if (tabBtn) tabBtn.textContent = 'Temas e fundo';
+
+    card = document.createElement('div');
+    card.className = 'cc-bg-card';
+    card.innerHTML =
+      '<div class="cc-plus-section-title">Fundo do app</div>' +
+      '<div class="cc-bg-preview" id="cc-bg-preview"><i class="cc-bg-dimlayer"></i><span class="cc-bg-preview-text">Nenhuma foto escolhida</span></div>' +
+      '<div class="cc-bg-actions">' +
+        '<button type="button" class="cc-bg-btn primary" id="cc-bg-pick">Escolher foto</button>' +
+        '<button type="button" class="cc-bg-btn danger" id="cc-bg-remove" hidden>Excluir</button>' +
+      '</div>' +
+      '<label class="cc-bg-dim" id="cc-bg-dim-wrap" hidden><span>Escurecer</span>' +
+        '<input type="range" id="cc-bg-dim" min="0" max="85" step="5" value="' + DEFAULT_DIM + '" aria-label="Quanto escurecer o fundo">' +
+        '<output id="cc-bg-dim-out">' + DEFAULT_DIM + '%</output></label>' +
+      '<div class="cc-plus-save-note" id="cc-bg-note" role="status" aria-live="polite"></div>' +
+      '<p class="cc-plus-hint">A foto fica salva na sua conta e aparece sozinha no site, no app do PC (.exe) e no celular (APK). Ela é otimizada automaticamente para ficar leve.</p>' +
+      '<input type="file" id="cc-bg-file" accept="image/jpeg,image/png,image/webp,image/avif,image/bmp" hidden>';
+
+    const anchor = panel.querySelector('.cc-plus-save-note');
+    if (anchor && anchor.parentNode === panel) panel.insertBefore(card, anchor);
+    else panel.appendChild(card);
+
+    previewEl = card.querySelector('#cc-bg-preview');
+    previewText = card.querySelector('.cc-bg-preview-text');
+    pickBtn = card.querySelector('#cc-bg-pick');
+    removeBtn = card.querySelector('#cc-bg-remove');
+    dimWrap = card.querySelector('#cc-bg-dim-wrap');
+    dimInput = card.querySelector('#cc-bg-dim');
+    dimOut = card.querySelector('#cc-bg-dim-out');
+    noteEl = card.querySelector('#cc-bg-note');
+    fileInput = card.querySelector('#cc-bg-file');
+
+    pickBtn.addEventListener('click', () => {
+      if (busy) return;
+      if (!isActive(profile())) { setNote('O fundo personalizado é exclusivo para quem tem Cluster+ ativo.', true); return; }
+      fileInput.value = '';
+      fileInput.click();
+    });
+
+    fileInput.addEventListener('change', () => { const f = fileInput.files && fileInput.files[0]; if (f) chooseBackground(f); });
+
+    removeBtn.addEventListener('click', async () => {
+      if (busy) return;
+      // Dois toques (sem janela de confirmação, que não funciona em todos os apps).
+      if (!removeBtn.classList.contains('armed')) {
+        removeBtn.classList.add('armed');
+        removeBtn.textContent = 'Toque de novo para excluir';
+        clearTimeout(armTimer);
+        armTimer = setTimeout(disarmRemove, 3500);
+        return;
+      }
+      disarmRemove();
+      await removeBackground();
+    });
+
+    dimInput.addEventListener('input', () => {
+      const value = clampDim(Number(dimInput.value));
+      dimOut.textContent = value + '%';
+      previewEl.style.setProperty('--cc-prev-dim', String(value / 100));
+      if (wanted) { wanted.dim = value; root.style.setProperty('--cc-bg-dim', String(value / 100)); }
+    });
+    dimInput.addEventListener('change', () => {
+      clearTimeout(dimTimer);
+      dimTimer = setTimeout(saveDim, 250);
+    });
+    return true;
+  }
+
+  function disarmRemove() {
+    clearTimeout(armTimer);
+    if (!removeBtn) return;
+    removeBtn.classList.remove('armed');
+    removeBtn.textContent = 'Excluir';
+  }
+
+  function setBusy(on) {
+    busy = on;
+    if (!card) return;
+    pickBtn.disabled = on;
+    removeBtn.disabled = on;
+    dimInput.disabled = on;
+    previewEl.classList.toggle('busy', on);
+  }
+
+  async function chooseBackground(file) {
+    if (!window.__ccIsPhotoFile || !window.__ccIsPhotoFile(file)) { setNote('Escolha uma foto (JPG, PNG ou WEBP).', true); return; }
+    if (file.size > BG_MAX_INPUT_BYTES) { setNote('Esta foto é grande demais. Escolha uma de até 40 MB.', true); return; }
+    const api_ = api();
+    if (!api_ || !isActive(profile())) { setNote('O fundo personalizado é exclusivo para quem tem Cluster+ ativo.', true); return; }
+
+    setBusy(true);
+    setNote('Otimizando a foto…');
+    const before = wanted ? { img: wanted.img, dim: wanted.dim } : null;
+    try {
+      const img = await compressBackground(file);
+      const dim = dimInput ? clampDim(Number(dimInput.value)) : DEFAULT_DIM;
+      wanted = { img, dim };
+      refreshBackground();                                   // resposta imediata
+      renderCard();
+      setNote('Salvando…');
+      const result = await api_.saveBackground({ image: img, dim });
+      if (result === 'saved') {
+        storeCache(profile());
+        setNote('Fundo salvo na sua conta ✓');
+      } else {
+        wanted = before; refreshBackground(); renderCard();
+        setNote(result === 'not-plus' ? 'Seu Cluster+ não está ativo.' : 'Não foi possível salvar agora. Tente de novo.', true);
+      }
+    } catch (error) {
+      wanted = before; refreshBackground(); renderCard();
+      setNote(error && error.message === 'too-big'
+        ? 'Não foi possível deixar esta foto leve o bastante. Tente outra.'
+        : 'Não foi possível abrir esta foto. Tente outro arquivo (JPG, PNG ou WEBP).', true);
+    }
+    setBusy(false);
+  }
+
+  async function removeBackground() {
+    const api_ = api();
+    if (!api_ || !wanted) return;
+    setBusy(true);
+    setNote('Excluindo…');
+    const before = { img: wanted.img, dim: wanted.dim };
+    wanted = null;
+    refreshBackground();
+    renderCard();
+    let result = 'error';
+    try { result = await api_.saveBackground({ image: null }); } catch (e) { result = 'error'; }
+    if (result === 'saved') {
+      storeCache(profile());
+      setNote('Fundo excluído ✓');
+    } else {
+      wanted = before; refreshBackground(); renderCard();
+      setNote(result === 'not-plus' ? 'Seu Cluster+ não está ativo.' : 'Não foi possível excluir agora. Tente de novo.', true);
+    }
+    setBusy(false);
+  }
+
+  async function saveDim() {
+    const api_ = api();
+    if (!api_ || !wanted || !dimInput) return;
+    let result = 'error';
+    try { result = await api_.saveBackground({ dim: clampDim(Number(dimInput.value)) }); } catch (e) { result = 'error'; }
+    if (result === 'saved') { storeCache(profile()); setNote('Salvo ✓'); }
+    else setNote('Não foi possível salvar o escurecimento agora.', true);
+  }
+
+  function renderCard() {
+    if (!card) return;
+    const has = !!wanted;
+    previewEl.classList.toggle('has-img', has);
+    previewEl.style.backgroundImage = has ? 'url("' + wanted.img + '")' : '';
+    previewEl.style.setProperty('--cc-prev-dim', String(clampDim(has ? wanted.dim : DEFAULT_DIM) / 100));
+    previewText.textContent = has ? 'Seu fundo atual' : 'Nenhuma foto escolhida';
+    pickBtn.textContent = has ? 'Trocar foto' : 'Escolher foto';
+    removeBtn.hidden = !has;
+    dimWrap.hidden = !has;
+    if (has) {
+      const value = clampDim(wanted.dim);
+      dimInput.value = String(value);
+      dimOut.textContent = value + '%';
+    }
+    if (!has) disarmRemove();
+  }
+
+  function syncBackground() {
+    const data = profile();
+    if (data) {
+      const active = isActive(data);
+      if (active && typeof data.ccBgImage === 'string' && BG_DATA_RE.test(data.ccBgImage) && data.ccBgImage.length <= BG_MAX_CHARS) {
+        if (!busy) wanted = { img: data.ccBgImage, dim: clampDim(typeof data.ccBgDim === 'number' ? data.ccBgDim : DEFAULT_DIM) };
+      } else if (!busy) {
+        wanted = null;                      // sem foto salva, ou o Cluster+ acabou
+      }
+      if (!busy) storeCache(data);
+    } else {
+      let saved = true;
+      try { saved = !!localStorage.getItem('clustercord_user'); } catch (e) { /* sem storage */ }
+      if (!saved) wanted = null;            // sem sessão salva
+    }
+    refreshBackground();
+    if (buildCard() && !busy) renderCard();
+  }
+
+  window.addEventListener('clustercord-profile-updated', syncBackground);
+  setInterval(syncBackground, 60000);       // percebe o fim do Cluster+ mesmo sem atualização do perfil
+  syncBackground();
+
+  /* =====================================================================
+     ENVIO DE VÍDEO (só Cluster+ envia; todo mundo assiste)
+     ===================================================================== */
+  const VIDEO_MARKER = '[[CLUSTER_VID';
+  const VIDEO_MAX_BYTES = 300 * 1024 * 1024;       // arquivo ORIGINAL aceito (ele é recomprimido antes de subir)
+  const VIDEO_OUT_MAX_BYTES = 25 * 1024 * 1024;   // teto do que realmente sobe para o Storage
+  const VIDEO_OUT_SIDE = 854;                     // lado maior do vídeo enviado (~480p)
+  const VIDEO_OUT_VBPS = 600000;                  // 600 kbps de vídeo
+  const VIDEO_OUT_ABPS = 48000;                   // 48 kbps de áudio
+  const VIDEO_OUT_FPS = 24;
+  const VIDEO_MAX_SECONDS = 180;
+  const VIDEO_EXT_RE = /\.(mp4|m4v|mov|webm|ogv|3gp)$/i;
+
+  const attachBtn = document.getElementById('chat-attach-btn');
+  const videoModal = document.getElementById('video-modal');
+  const videoInput = document.createElement('input');
+  videoInput.type = 'file';
+  videoInput.accept = 'video/mp4,video/webm,video/quicktime,video/x-m4v,video/3gpp,video/ogg';
+  videoInput.hidden = true;
+  document.body.appendChild(videoInput);
+
+  const isVideoFile = (file) => {
+    if (!file) return false;
+    const type = String(file.type || '').toLowerCase();
+    if (type.indexOf('video/') === 0) return true;
+    if (!type || type === 'application/octet-stream') return VIDEO_EXT_RE.test(String(file.name || ''));
+    return false;
+  };
+
+  const formatSize = (bytes) => {
+    if (bytes >= 1048576) return (bytes / 1048576).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' MB';
+    return Math.max(1, Math.round(bytes / 1024)).toLocaleString('pt-BR') + ' KB';
+  };
+  const formatTime = (seconds) => {
+    const total = Math.max(0, Math.round(seconds));
+    return Math.floor(total / 60) + ':' + String(total % 60).padStart(2, '0');
+  };
+
+  /* ---------- Menu do grampo: Foto / Vídeo ---------- */
+  let menu = null;
+  let passThrough = false;
+
+  function buildMenu() {
+    if (menu) return;
+    menu = document.createElement('div');
+    menu.id = 'cc-attach-menu';
+    menu.setAttribute('role', 'menu');
+    menu.innerHTML =
+      '<button type="button" role="menuitem" data-cc-attach="photo"><span class="cc-am-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/></svg></span>Foto</button>' +
+      '<button type="button" role="menuitem" data-cc-attach="video"><span class="cc-am-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="14" height="12" rx="3"/><path d="M17 10.5l4-2.5v8l-4-2.5z"/></svg></span>Vídeo<span class="cc-am-tag">Cluster+</span></button>';
+    document.body.appendChild(menu);
+
+    menu.addEventListener('click', (event) => {
+      const item = event.target.closest('[data-cc-attach]');
+      if (!item) return;
+      const kind = item.dataset.ccAttach;
+      closeMenu();
+      if (kind === 'photo') {
+        passThrough = true;                 // deixa o fluxo original de foto seguir
+        attachBtn.click();
+        passThrough = false;
+        return;
+      }
+      if (!isActive(profile())) {
+        toast('Enviar vídeos é um benefício do Cluster+.');
+        openClusterPlus();
+        return;
+      }
+      videoInput.value = '';
+      videoInput.click();
+    });
+  }
+
+  const isMenuOpen = () => !!menu && menu.classList.contains('open');
+
+  function openMenu() {
+    buildMenu();
+    const locked = !isActive(profile());
+    const videoItem = menu.querySelector('[data-cc-attach="video"]');
+    videoItem.classList.toggle('locked', locked);
+    videoItem.querySelector('.cc-am-tag').textContent = locked ? 'Cluster+' : 'Cluster+ ✓';
+
+    menu.classList.add('open');
+    const rect = attachBtn.getBoundingClientRect();
+    const width = menu.offsetWidth || 220;
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+    menu.style.left = left + 'px';
+    menu.style.bottom = Math.max(8, window.innerHeight - rect.top + 8) + 'px';
+    menu.style.top = 'auto';
+    attachBtn.setAttribute('aria-expanded', 'true');
+    const first = menu.querySelector('button');
+    if (first) { try { first.focus({ preventScroll: true }); } catch (e) { /* sem foco */ } }
+  }
+
+  function closeMenu() {
+    if (!menu) return;
+    menu.classList.remove('open');
+    if (attachBtn) attachBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  if (attachBtn) {
+    attachBtn.setAttribute('aria-haspopup', 'menu');
+    // Captura o toque no grampo ANTES do código original: agora ele abre o menu Foto / Vídeo.
+    document.addEventListener('click', (event) => {
+      const hit = event.target.closest && event.target.closest('#chat-attach-btn');
+      if (!hit) return;
+      if (passThrough) return;              // vindo do menu: segue o fluxo original (foto)
+      event.stopPropagation();
+      event.preventDefault();
+      if (!hasActiveChat()) { toast('Abra uma conversa antes de anexar.'); return; }
+      if (isMenuOpen()) closeMenu(); else openMenu();
+    }, true);
+
+    document.addEventListener('click', (event) => {
+      if (!isMenuOpen()) return;
+      if (event.target.closest('#cc-attach-menu') || event.target.closest('#chat-attach-btn')) return;
+      closeMenu();
+    });
+    window.addEventListener('resize', closeMenu);
+  }
+
+  /* ---------- Janela de envio de vídeo ---------- */
+  const closeVideoBtn = document.getElementById('close-video-modal');
+  const targetEl = document.getElementById('video-target');
+  const spinner = document.getElementById('video-spinner');
+  const previewVideo = document.getElementById('video-preview');
+  const progressWrap = document.getElementById('video-progress');
+  const progressBar = document.getElementById('video-progress-bar');
+  const infoEl = document.getElementById('video-info');
+  const sendBtn = document.getElementById('video-send');
+  const cancelBtn = document.getElementById('video-cancel');
+
+  let vJob = 0, vCurrent = null, vUrl = null, vUpload = null, vCompress = null, vSending = false, vChatName = '';
+
+  const setInfo = (text, isError) => { infoEl.textContent = text; infoEl.classList.toggle('error', !!isError); };
+  const isVideoOpen = () => !!videoModal && !videoModal.classList.contains('hidden');
+
+  function releasePreview() {
+    if (previewVideo) { try { previewVideo.pause(); } catch (e) { /* ok */ } previewVideo.removeAttribute('src'); previewVideo.load(); previewVideo.hidden = true; }
+    if (vUrl) { URL.revokeObjectURL(vUrl); vUrl = null; }
+  }
+
+  function closeVideo() {
+    vJob++;
+    if (vUpload) { vUpload.cancel(); vUpload = null; }
+    if (vCompress) { vCompress.cancel(); vCompress = null; }
+    videoModal.classList.add('hidden');
+    releasePreview();
+    vCurrent = null; vSending = false;
+    progressWrap.hidden = true;
+    progressBar.style.width = '0%';
+    videoInput.value = '';
+  }
+
+  // Lê só os metadados (duração e tamanho em pixels); também confirma que o aparelho consegue abrir o vídeo.
+  const probeVideo = (file) => new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const probe = document.createElement('video');
+    let done = false;
+    const finish = (fn, value) => { if (done) return; done = true; clearTimeout(timer); fn(value); };
+    const timer = setTimeout(() => { URL.revokeObjectURL(url); finish(reject, new Error('decode')); }, 10000);
+    probe.preload = 'metadata';
+    probe.muted = true;
+    probe.playsInline = true;
+    probe.onloadedmetadata = () => finish(resolve, { url, duration: probe.duration, width: probe.videoWidth, height: probe.videoHeight });
+    probe.onerror = () => { URL.revokeObjectURL(url); finish(reject, new Error('decode')); };
+    probe.src = url;
+  });
+
+  async function openVideo(file) {
+    const myJob = ++vJob;
+    vCurrent = null; vSending = false;
+    releasePreview();
+    spinner.hidden = false;
+    progressWrap.hidden = true;
+    progressBar.style.width = '0%';
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Enviar vídeo';
+    vChatName = chatName();
+    targetEl.textContent = vChatName ? 'Para: ' + vChatName : '';
+    setInfo('Abrindo o vídeo…');
+    videoModal.classList.remove('hidden');
+
+    try {
+      const meta = await probeVideo(file);
+      if (myJob !== vJob) { URL.revokeObjectURL(meta.url); return; }
+      if (!Number.isFinite(meta.duration) || meta.duration <= 0) { URL.revokeObjectURL(meta.url); throw new Error('decode'); }
+      if (meta.duration > VIDEO_MAX_SECONDS) {
+        URL.revokeObjectURL(meta.url);
+        spinner.hidden = true;
+        setInfo('Este vídeo tem ' + formatTime(meta.duration) + '. O limite é de ' + formatTime(VIDEO_MAX_SECONDS) + ' para o Clustercord continuar leve.', true);
+        return;
+      }
+      vUrl = meta.url;
+      vCurrent = { file, width: meta.width, height: meta.height, duration: meta.duration };
+      previewVideo.src = vUrl;
+      previewVideo.hidden = false;
+      spinner.hidden = true;
+      setInfo(formatTime(meta.duration) + ' • ' + formatSize(file.size) + (meta.width && meta.height ? ' • ' + meta.width + '×' + meta.height : ''));
+      sendBtn.disabled = false;
+    } catch (error) {
+      if (myJob !== vJob) return;
+      spinner.hidden = true;
+      setInfo('Não foi possível abrir este vídeo neste aparelho. Use um vídeo MP4 ou WEBM.', true);
+    }
+  }
+
+  function handleVideoFile(file) {
+    if (!file) return;
+    if (!hasActiveChat()) { toast('Abra uma conversa antes de anexar um vídeo.'); return; }
+    if (!isActive(profile())) {
+      toast('Enviar vídeos é um benefício do Cluster+.');
+      openClusterPlus();
+      return;
+    }
+    if (!isVideoFile(file)) { toast('Escolha um arquivo de vídeo (MP4 ou WEBM).'); return; }
+    if (file.size > VIDEO_MAX_BYTES) { toast('Este vídeo é grande demais. O limite do arquivo é de ' + formatSize(VIDEO_MAX_BYTES) + '.'); return; }
+    openVideo(file);
+  }
+
+  /* Recomprime o vídeo no próprio aparelho (como as imagens): toca em segundo plano, redesenha em ~480p
+     e grava em WEBM com bitrate baixo. Devolve { promise, cancel }; a promise dá um File menor ou null
+     (aparelho sem suporte / não ficou menor -> envia o original). */
+  function compressVideo(item, onProgress) {
+    let cancelled = false, stopFn = null;
+    const promise = new Promise((resolve) => {
+      const file = item.file;
+      const canRecord = window.MediaRecorder && HTMLCanvasElement.prototype.captureStream;
+      const small = file.size <= item.duration * 60 * 1024 && Math.max(item.width, item.height) <= VIDEO_OUT_SIDE;
+      if (!canRecord || small) { resolve(null); return; }
+
+      const mimes = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+      const mime = mimes.find((m) => { try { return MediaRecorder.isTypeSupported(m); } catch (e) { return false; } });
+      if (!mime) { resolve(null); return; }
+
+      const url = URL.createObjectURL(file);
+      const video = document.createElement('video');
+      video.src = url; video.playsInline = true; video.preload = 'auto';
+      let recorder = null, audioCtx = null, raf = 0, done = false;
+      const chunks = [];
+
+      const finish = (result) => {
+        if (done) return; done = true;
+        cancelAnimationFrame(raf);
+        try { video.pause(); } catch (e) { /* ok */ }
+        try { audioCtx && audioCtx.close(); } catch (e) { /* ok */ }
+        video.removeAttribute('src'); video.load();
+        URL.revokeObjectURL(url);
+        resolve(result);
+      };
+      stopFn = () => { try { recorder && recorder.state !== 'inactive' && recorder.stop(); } catch (e) { /* ok */ } finish(null); };
+
+      video.onerror = () => finish(null);
+      video.onloadedmetadata = async () => {
+        try {
+          const scale = Math.min(1, VIDEO_OUT_SIDE / Math.max(video.videoWidth, video.videoHeight));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(2, Math.round(video.videoWidth * scale / 2) * 2);
+          canvas.height = Math.max(2, Math.round(video.videoHeight * scale / 2) * 2);
+          const ctx = canvas.getContext('2d');
+          const stream = canvas.captureStream(VIDEO_OUT_FPS);
+
+          try {                                           // áudio: vai direto para a gravação, sem tocar no alto-falante
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (AC) {
+              audioCtx = new AC();
+              const dest = audioCtx.createMediaStreamDestination();
+              audioCtx.createMediaElementSource(video).connect(dest);
+              dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
+              if (audioCtx.state === 'suspended') await audioCtx.resume();
+            }
+          } catch (e) { /* segue sem áudio */ }
+
+          recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: VIDEO_OUT_VBPS, audioBitsPerSecond: VIDEO_OUT_ABPS });
+          recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+          recorder.onstop = () => {
+            if (done) return;
+            const blob = new Blob(chunks, { type: 'video/webm' });
+            if (!blob.size || blob.size >= file.size || blob.size > VIDEO_OUT_MAX_BYTES) { finish(null); return; }
+            const base = String(file.name || 'video').replace(/\.[^.]+$/, '');
+            finish(new File([blob], base + '.webm', { type: 'video/webm' }));
+          };
+
+          const draw = () => {
+            if (done) return;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            if (typeof onProgress === 'function' && video.duration) onProgress(Math.min(1, video.currentTime / video.duration));
+            raf = requestAnimationFrame(draw);
+          };
+          video.onended = () => { try { recorder.stop(); } catch (e) { finish(null); } };
+          recorder.start(1000);
+          await video.play();
+          draw();
+        } catch (e) { finish(null); }
+      };
+    });
+    return { promise, cancel() { cancelled = true; if (stopFn) stopFn(); } };
+  }
+
+  const uploadErrorText = (error) => {
+    const code = error && error.ccCode;
+    if (code === 'not-plus') return 'Enviar vídeos é exclusivo para quem tem Cluster+ ativo.';
+    if (code === 'storage-unavailable') {
+      const admin = api() && api().isCreator && api().isCreator();
+      return admin
+        ? 'O Firebase Storage recusou o envio (' + (error.detail || 'erro') + '). Ative o Storage e publique o arquivo storage.rules.'
+        : 'Não foi possível enviar o vídeo agora. Verifique a conexão e tente de novo.';
+    }
+    return 'Não foi possível enviar o vídeo. Tente de novo.';
+  };
+
+  async function sendVideo() {
+    if (!vCurrent || vSending) return;
+    const plus = api();
+    if (!plus || typeof plus.startVideoUpload !== 'function' || typeof window.__clustercordSendRaw !== 'function') {
+      setInfo('O chat ainda está carregando. Tente novamente em instantes.', true);
+      return;
+    }
+    if (!isActive(profile())) { setInfo('Enviar vídeos é exclusivo para quem tem Cluster+ ativo.', true); return; }
+
+    vSending = true;
+    const myJob = vJob;
+    const item = vCurrent;
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Enviando…';
+    progressWrap.hidden = false;
+    progressBar.style.width = '2%';
+    setInfo('Enviando o vídeo… não feche esta janela.');
+
+    try {
+      let toSend = item.file;
+      progressBar.style.width = '2%';
+      setInfo('Otimizando o vídeo para ficar leve… mantenha o app aberto (leva o tempo do vídeo).');
+      vCompress = compressVideo(item, (ratio) => {
+        if (myJob === vJob) progressBar.style.width = Math.max(2, Math.round(ratio * 100)) + '%';
+      });
+      const optimized = await vCompress.promise;
+      vCompress = null;
+      if (myJob !== vJob) return;
+      if (optimized) {
+        toSend = optimized;
+        setInfo('Original: ' + formatSize(item.file.size) + '  →  Enviando: ' + formatSize(optimized.size));
+      } else if (item.file.size > VIDEO_OUT_MAX_BYTES) {
+        setInfo('Este aparelho não conseguiu otimizar o vídeo e ele passa de ' + formatSize(VIDEO_OUT_MAX_BYTES) + '. Tente um vídeo menor.', true);
+        vSending = false; progressWrap.hidden = true; sendBtn.disabled = false; sendBtn.textContent = 'Enviar vídeo';
+        return;
+      } else {
+        setInfo('Enviando o vídeo… não feche esta janela.');
+      }
+      progressBar.style.width = '2%';
+      vUpload = plus.startVideoUpload(toSend, (ratio) => {
+        if (myJob === vJob) progressBar.style.width = Math.max(2, Math.round(ratio * 100)) + '%';
+      });
+      const out = await vUpload.promise;
+      vUpload = null;
+      if (myJob !== vJob) return;
+
+      if (chatName() !== vChatName) {      // a conversa mudou durante o envio
+        setInfo('A conversa foi trocada durante o envio. Abra a conversa certa e envie o vídeo de novo.', true);
+      } else {
+        const size = item.width && item.height ? ':' + item.width + 'x' + item.height : '';
+        const ok = await window.__clustercordSendRaw(VIDEO_MARKER + size + ']]' + out.url);
+        if (ok) { closeVideo(); return; }
+        setInfo('O vídeo foi enviado, mas a mensagem não saiu. Verifique a conexão e tente de novo.', true);
+      }
+    } catch (error) {
+      vUpload = null;
+      if (myJob !== vJob) return;
+      if (!(error && error.ccCode === 'canceled')) setInfo(uploadErrorText(error), true);
+    }
+    vSending = false;
+    progressWrap.hidden = true;
+    sendBtn.disabled = false;
+    sendBtn.textContent = 'Enviar vídeo';
+  }
+
+  if (videoModal && closeVideoBtn && spinner && previewVideo && progressWrap && progressBar && infoEl && sendBtn && cancelBtn && targetEl) {
+    videoInput.addEventListener('change', () => handleVideoFile(videoInput.files && videoInput.files[0]));
+    closeVideoBtn.addEventListener('click', closeVideo);
+    cancelBtn.addEventListener('click', closeVideo);
+    sendBtn.addEventListener('click', sendVideo);
+    videoModal.addEventListener('click', (event) => { if (event.target === videoModal) closeVideo(); });
+  }
+
+  /* ---------- Voltar do Android / tecla Esc ---------- */
+  const previousBack = window.__clustercordMobileBack;
+  window.__clustercordMobileBack = () => {
+    if (isMenuOpen()) { closeMenu(); return true; }
+    if (isVideoOpen()) { closeVideo(); return true; }
+    return typeof previousBack === 'function' ? previousBack() : false;
+  };
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (isMenuOpen()) closeMenu();
+    else if (isVideoOpen()) closeVideo();
+  });
 })();
 </script>
