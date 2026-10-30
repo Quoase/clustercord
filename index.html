@@ -1704,7 +1704,7 @@
               <div class="cp-benefit-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="14" height="12" rx="3"/><path d="M17 10.5l4-2.5v8l-4-2.5z"/></svg></div>
               <div>
                 <div class="cp-benefit-title">Envio de vídeos <span class="cp-soon">Em breve</span></div>
-                <div class="cp-benefit-sub">Mande vídeos nos chats pelo grampo. Só quem tem Cluster+ envia; todo mundo assiste.</div>
+                <div class="cp-benefit-sub">Mande vídeos de até 1 minuto nos chats pelo grampo. Só quem tem Cluster+ envia; todo mundo assiste.</div>
               </div>
             </li>
           </ul>
@@ -1899,7 +1899,7 @@
     import { 
       getFirestore, doc, setDoc, getDoc, updateDoc, collection, addDoc, 
       query, where, onSnapshot, serverTimestamp, arrayUnion, arrayRemove, increment, 
-      getDocs, deleteDoc, runTransaction 
+      getDocs, deleteDoc, runTransaction, Bytes 
     } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
     // CREDENCIAIS REAIS DO FIREBASE
@@ -2892,8 +2892,6 @@
     // ===== Cluster+ (V5.2, ADITIVO): fundo personalizado do app + envio de vídeo =====
     const CC_BG_DATA_RE = /^data:image\/(?:webp|jpeg|png);base64,[A-Za-z0-9+\/=]+$/;
     const CC_BG_MAX_CHARS = 180000;            // ~130 KB: o perfil é lido por outros usuários, então a foto fica leve
-    const CC_VIDEO_INLINE_MAX_BYTES = 600 * 1024; // reserva: sem Storage, só vídeos bem pequenos vão dentro da mensagem
-    const CC_VIDEO_EXT = { 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov', 'video/x-m4v': 'm4v', 'video/3gpp': '3gp', 'video/ogg': 'ogv' };
     const ccPlusError = (code, detail) => { const e = new Error(code); e.ccCode = code; e.detail = detail || ''; return e; };
 
     // Salva (ou troca / exclui) o fundo personalizado e o escurecimento. Só com Cluster+ ativo.
@@ -2928,20 +2926,21 @@
       return result;
     }
 
-    function ccFileToDataUrl(file) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result));
-        reader.onerror = () => reject(new Error('read'));
-        reader.readAsDataURL(file);
-      });
+    // ---- Vídeo SEM Firebase Storage: o vídeo (já recomprimido no aparelho) é guardado no Firestore em
+    // pedaços de até 900 KB: videoClips/{id} (cabeçalho) + videoClips/{id}/parts/{0..7} (bytes).
+    // Na conversa só vai o marcador "[[CLUSTER_VID:LxA:tamanho]]clip:{id}"; os pedaços só são baixados quando alguém toca em Assistir.
+    const CC_CLIP_PART_BYTES = 900000;
+    const CC_CLIP_MAX_PARTS = 8;
+    const ccClipCache = new Map();
+
+    function ccRandomClipId() {
+      const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+      const bytes = crypto.getRandomValues(new Uint8Array(20));
+      return Array.from(bytes, (b) => chars[b % chars.length]).join('');
     }
 
-    // Envia o vídeo para o Firebase Storage (o vídeo NÃO fica dentro do Firestore, para não encher o banco)
-    // e devolve o link. Retorna { promise, cancel } para a barra de progresso e o botão Cancelar.
     function startClusterVideoUpload(file, onProgress) {
       let cancelled = false;
-      let task = null;
 
       const promise = (async () => {
         if (!currentUser || !authenticatedUid) throw ccPlusError('auth');
@@ -2950,42 +2949,60 @@
         const me = await getDoc(doc(db, 'users', currentUser));
         if (!me.exists() || !isClusterPlusActive(me.data() || {})) throw ccPlusError('not-plus');
 
-        const type = String(file.type || '').toLowerCase();
-        const nameExt = String(file.name || '').split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5);
-        const ext = CC_VIDEO_EXT[type] || nameExt || 'mp4';
-        const contentType = type.indexOf('video/') === 0 ? type : 'video/mp4';
+        const type = String(file.type || '').toLowerCase().split(';')[0];
+        if (type !== 'video/webm' && type !== 'video/mp4') throw ccPlusError('format');
+        const parts = Math.ceil(file.size / CC_CLIP_PART_BYTES);
+        if (parts < 1 || parts > CC_CLIP_MAX_PARTS) throw ccPlusError('too-big');
 
+        const clipId = ccRandomClipId();
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const written = [];
         try {
-          const storageModule = await import('https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js');
-          const storage = storageModule.getStorage(app);
-          const path = 'chatVideos/' + authenticatedUid + '/' + Date.now() + '_' + Math.random().toString(36).slice(2, 8) + '.' + ext;
-          const fileRef = storageModule.ref(storage, path);
-          task = storageModule.uploadBytesResumable(fileRef, file, { contentType, cacheControl: 'public,max-age=31536000' });
-          if (cancelled) task.cancel();
-          await new Promise((resolve, reject) => {
-            task.on('state_changed', (snap) => {
-              if (typeof onProgress === 'function') onProgress(snap.bytesTransferred / Math.max(1, snap.totalBytes));
-            }, reject, resolve);
+          await setDoc(doc(db, 'videoClips', clipId), {
+            ownerUid: authenticatedUid, owner: currentUser,
+            parts, size: file.size, mime: type, createdAt: serverTimestamp()
           });
-          return { url: await storageModule.getDownloadURL(fileRef), via: 'storage' };
-        } catch (err) {
-          if (cancelled || err?.code === 'storage/canceled') throw ccPlusError('canceled');
-          console.error('Upload do vídeo para o Storage falhou:', err);
-          // Reserva: se o Storage não estiver disponível, vídeo bem pequeno ainda vai dentro da mensagem.
-          if (file.size <= CC_VIDEO_INLINE_MAX_BYTES && /^video\/(?:mp4|webm|ogg)$/.test(type)) {
-            try {
-              const dataUrl = await ccFileToDataUrl(file);
-              if (/^data:video\/(?:mp4|webm|ogg);base64,[A-Za-z0-9+\/=]+$/.test(dataUrl)) return { url: dataUrl, via: 'inline' };
-            } catch (_) { /* cai no erro abaixo */ }
+          for (let i = 0; i < parts; i++) {
+            if (cancelled) throw ccPlusError('canceled');
+            await setDoc(doc(db, 'videoClips', clipId, 'parts', String(i)), {
+              i, data: Bytes.fromUint8Array(bytes.subarray(i * CC_CLIP_PART_BYTES, Math.min(bytes.length, (i + 1) * CC_CLIP_PART_BYTES)))
+            });
+            written.push(i);
+            if (typeof onProgress === 'function') onProgress((i + 1) / parts);
           }
-          throw ccPlusError('storage-unavailable', err?.code || err?.message || '');
+          return { url: 'clip:' + clipId, size: file.size, via: 'firestore' };
+        } catch (err) {
+          // limpa o que já tinha subido (melhor esforço)
+          for (const i of written) { try { await deleteDoc(doc(db, 'videoClips', clipId, 'parts', String(i))); } catch (_) { /* ok */ } }
+          try { await deleteDoc(doc(db, 'videoClips', clipId)); } catch (_) { /* ok */ }
+          if (cancelled || err?.ccCode === 'canceled') throw ccPlusError('canceled');
+          console.error('Upload do vídeo falhou:', err);
+          throw ccPlusError('upload-failed', err?.code || err?.message || '');
         }
       })();
 
-      return {
-        promise,
-        cancel() { cancelled = true; try { task && task.cancel(); } catch (_) { /* já terminou */ } }
-      };
+      return { promise, cancel() { cancelled = true; } };
+    }
+
+    // Baixa os pedaços e devolve um link de objeto (blob:) para o <video>. Fica em cache enquanto o app está aberto.
+    async function loadClusterVideo(clipId) {
+      if (ccClipCache.has(clipId)) return ccClipCache.get(clipId);
+      const head = await getDoc(doc(db, 'videoClips', clipId));
+      if (!head.exists()) throw ccPlusError('gone');
+      const info = head.data() || {};
+      const total = Number(info.parts);
+      if (!(total >= 1 && total <= CC_CLIP_MAX_PARTS)) throw ccPlusError('gone');
+      const snap = await getDocs(collection(db, 'videoClips', clipId, 'parts'));
+      const chunks = new Array(total);
+      snap.forEach((d) => {
+        const i = Number(d.id);
+        const data = d.data() || {};
+        if (Number.isInteger(i) && i >= 0 && i < total && data.data && data.data.toUint8Array) chunks[i] = data.data.toUint8Array();
+      });
+      for (let i = 0; i < total; i++) if (!chunks[i]) throw ccPlusError('incomplete');
+      const url = URL.createObjectURL(new Blob(chunks, { type: info.mime === 'video/mp4' ? 'video/mp4' : 'video/webm' }));
+      ccClipCache.set(clipId, url);
+      return url;
     }
 
     window.__clustercordClusterPlus = {
@@ -2996,7 +3013,8 @@
       equipFrame: equipClusterPlusFrame,
       savePrefs: saveClusterPlusPrefs,
       saveBackground: saveClusterPlusBackground,
-      startVideoUpload: startClusterVideoUpload
+      startVideoUpload: startClusterVideoUpload,
+      loadVideo: loadClusterVideo
     };
 
     function applyClusterFrame(host, data) {
@@ -4745,33 +4763,25 @@
       };
     }
 
-    /* Vídeo anexado (V5.2): "[[CLUSTER_VID:LxA]]<link do Firebase Storage>" (ou data URL bem pequeno).
-       Só membros Cluster+ enviam; todo mundo assiste. Só aceita links do bucket do próprio Clustercord. */
+    /* Vídeo anexado (V5.2): "[[CLUSTER_VID:LxA:tamanho]]clip:{id}" (guardado em videoClips no Firestore)
+       ou um data URL bem pequeno. Só membros Cluster+ enviam; todo mundo assiste. */
     function getClusterVideo(value) {
       const text = String(value || '');
       if (text.length < 30 || text.length > 900000 || text.indexOf('[[CLUSTER_VID') !== 0) return null;
-      const match = /^\[\[CLUSTER_VID(?::(\d{1,4})x(\d{1,4}))?\]\](\S+)$/.exec(text);
+      const match = /^\[\[CLUSTER_VID(?::(\d{1,4})x(\d{1,4})(?::(\d{1,9}))?)?\]\](\S+)$/.exec(text);
       if (!match) return null;
 
-      const src = match[3];
-      let allowed = false;
-      if (/^data:video\/(?:mp4|webm|ogg);base64,[A-Za-z0-9+\/=]+$/.test(src)) {
-        allowed = true;
-      } else {
-        try {
-          const url = new URL(src);
-          const bucket = String(firebaseConfig.storageBucket || '');
-          allowed = url.protocol === 'https:' &&
-            url.hostname === 'firebasestorage.googleapis.com' &&
-            url.pathname.indexOf('/v0/b/' + bucket + '/o/chatVideos') === 0;
-        } catch (_) { allowed = false; }
-      }
-      if (!allowed) return null;
+      const ref = match[4];
+      const clip = /^clip:([a-z0-9]{20})$/.exec(ref);
+      const inlineOk = !clip && /^data:video\/(?:mp4|webm|ogg);base64,[A-Za-z0-9+\/=]+$/.test(ref);
+      if (!clip && !inlineOk) return null;
 
       return {
-        src,
+        clipId: clip ? clip[1] : '',
+        src: clip ? '' : ref,
         width: match[1] ? Number(match[1]) : 0,
-        height: match[2] ? Number(match[2]) : 0
+        height: match[2] ? Number(match[2]) : 0,
+        size: match[3] ? Number(match[3]) : 0
       };
     }
 
@@ -5424,18 +5434,20 @@
             });
             bubble.appendChild(photo);
           } else if (messageVideo) {
-            const clip = document.createElement('video');
-            clip.className = 'message-video';
-            clip.controls = true;
-            clip.playsInline = true;
-            clip.setAttribute('playsinline', '');
-            clip.preload = 'metadata';
-            if (messageVideo.width && messageVideo.height) clip.style.aspectRatio = messageVideo.width + ' / ' + messageVideo.height;
-            clip.src = messageVideo.src + (messageVideo.src.indexOf('data:') === 0 ? '' : '#t=0.1');
-            clip.addEventListener('error', () => {
-              clip.replaceWith(document.createTextNode('Vídeo indisponível'));
-            });
-            bubble.appendChild(clip);
+            if (messageVideo.clipId) {
+              bubble.appendChild(window.__ccVideoCard ? window.__ccVideoCard(messageVideo) : document.createTextNode('[Vídeo]'));
+            } else {
+              const clip = document.createElement('video');
+              clip.className = 'message-video';
+              clip.controls = true;
+              clip.playsInline = true;
+              clip.setAttribute('playsinline', '');
+              clip.preload = 'metadata';
+              if (messageVideo.width && messageVideo.height) clip.style.aspectRatio = messageVideo.width + ' / ' + messageVideo.height;
+              clip.src = messageVideo.src;
+              clip.addEventListener('error', () => { clip.replaceWith(document.createTextNode('Vídeo indisponível')); });
+              bubble.appendChild(clip);
+            }
           } else if (messageIsGif) {
             const gif = document.createElement('img');
             gif.className = 'message-gif';
@@ -12322,7 +12334,8 @@
       btn.disabled = true;
       say('Aplicando...');
       let result = { status: 'error' };
-      try { result = await api().grant(nick, days); } catch (e) { console.error('Erro ao liberar Cluster+:', e); }
+      let errCode = '';
+      try { result = await api().grant(nick, days); } catch (e) { console.error('Erro ao liberar Cluster+:', e); errCode = String((e && (e.code || e.message)) || ''); }
       btn.disabled = false;
       const fmt = (ms) => new Date(ms).toLocaleDateString('pt-BR');
       if (result.status === 'granted') {
@@ -12332,7 +12345,8 @@
       else if (result.status === 'not-found') say('Usuário não encontrado!', 'err');
       else if (result.status === 'forbidden') say('Sem permissão.', 'err');
       else if (result.status === 'invalid-days') say('Dias inválidos.', 'err');
-      else say('Não foi possível salvar. Confira as regras (Firestore) do Felypex e tente de novo.', 'err');
+      else if (/permission-denied/i.test(errCode)) say('O Firestore recusou (permission-denied): falta liberar, nas regras, que o Felypex edite clusterPlusUntil nos usuários. Veja firestore.rules.txt.', 'err');
+      else say('Não foi possível salvar' + (errCode ? ' (' + errCode + ')' : '') + '. Confira a conexão e as regras do Firestore.', 'err');
     };
     btn.addEventListener('click', run);
     [nickEl, daysEl].forEach(el => el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } }));
@@ -12543,7 +12557,22 @@
     display: block; width: min(320px, 100%); height: auto; max-height: 360px;
     object-fit: contain; border-radius: 12px; background: #000;
   }
-  .message-bubble:has(.message-video) { padding: 0.35rem; }
+  .message-bubble:has(.message-video), .message-bubble:has(.message-video-card) { padding: 0.35rem; }
+  .message-video-card {
+    position: relative; display: block; width: min(320px, 100%); min-height: 120px; max-height: 360px;
+    border-radius: 12px; overflow: hidden; background: linear-gradient(135deg, #14161f, #23263a);
+  }
+  .cc-vc-btn {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.6rem;
+    width: 100%; border: 0; background: transparent; color: #fff; cursor: pointer; font-family: inherit; font-weight: 700; font-size: 0.8rem; touch-action: manipulation;
+  }
+  .cc-vc-play {
+    width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center;
+    background: linear-gradient(135deg, #ffc247, #f59e0b); box-shadow: 0 6px 20px rgba(245, 158, 11, 0.4);
+  }
+  .cc-vc-play svg { width: 24px; height: 24px; fill: #1a1100; }
+  .cc-vc-btn.loading .cc-vc-play { animation: attach-spin 1s linear infinite; }
+  .cc-vc-text { padding: 0 0.8rem; text-align: center; }
   @media (max-width: 700px) {
     .message-video { width: min(260px, 100%); max-height: 320px; }
     #app-screen .message-bubble .message-video { border-radius: 14px; }
@@ -12999,12 +13028,12 @@
      ===================================================================== */
   const VIDEO_MARKER = '[[CLUSTER_VID';
   const VIDEO_MAX_BYTES = 300 * 1024 * 1024;       // arquivo ORIGINAL aceito (ele é recomprimido antes de subir)
-  const VIDEO_OUT_MAX_BYTES = 25 * 1024 * 1024;   // teto do que realmente sobe para o Storage
-  const VIDEO_OUT_SIDE = 854;                     // lado maior do vídeo enviado (~480p)
-  const VIDEO_OUT_VBPS = 600000;                  // 600 kbps de vídeo
-  const VIDEO_OUT_ABPS = 48000;                   // 48 kbps de áudio
-  const VIDEO_OUT_FPS = 24;
-  const VIDEO_MAX_SECONDS = 180;
+  const VIDEO_OUT_MAX_BYTES = 7000000;            // teto do que sobe (até 8 pedaços de 900 KB no Firestore)
+  const VIDEO_OUT_SIDE = 640;                     // lado maior do vídeo enviado (~360p)
+  const VIDEO_OUT_VBPS = 380000;                  // 380 kbps de vídeo
+  const VIDEO_OUT_ABPS = 40000;                   // 40 kbps de áudio
+  const VIDEO_OUT_FPS = 20;
+  const VIDEO_MAX_SECONDS = 60;
   const VIDEO_EXT_RE = /\.(mp4|m4v|mov|webm|ogv|3gp)$/i;
 
   const attachBtn = document.getElementById('chat-attach-btn');
@@ -13030,6 +13059,47 @@
   const formatTime = (seconds) => {
     const total = Math.max(0, Math.round(seconds));
     return Math.floor(total / 60) + ':' + String(total % 60).padStart(2, '0');
+  };
+
+  /* ---------- Vídeo dentro da conversa: cartão "Assistir" (só baixa quando a pessoa toca) ---------- */
+  window.__ccVideoCard = (info) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'message-video-card';
+    if (info.width && info.height) wrap.style.aspectRatio = info.width + ' / ' + info.height;
+    const label = (extra) => 'Assistir vídeo' + (info.size ? ' • ' + formatSize(info.size) : '') + (extra ? ' • ' + extra : '');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cc-vc-btn';
+    btn.innerHTML = '<span class="cc-vc-play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></svg></span><span class="cc-vc-text"></span>';
+    const text = btn.querySelector('.cc-vc-text');
+    text.textContent = label();
+    wrap.appendChild(btn);
+
+    let loading = false;
+    btn.addEventListener('click', async () => {
+      if (loading) return;
+      const plus = api();
+      if (!plus || typeof plus.loadVideo !== 'function') { text.textContent = 'Vídeo indisponível agora'; return; }
+      loading = true;
+      btn.classList.add('loading');
+      text.textContent = 'Carregando…';
+      try {
+        const url = await plus.loadVideo(info.clipId);
+        const video = document.createElement('video');
+        video.className = 'message-video';
+        video.controls = true; video.autoplay = true; video.playsInline = true;
+        video.setAttribute('playsinline', '');
+        if (info.width && info.height) video.style.aspectRatio = info.width + ' / ' + info.height;
+        video.src = url;
+        video.addEventListener('error', () => { wrap.replaceChildren(btn); text.textContent = 'Não foi possível tocar. Toque para tentar de novo'; });
+        wrap.replaceWith(video);
+      } catch (error) {
+        text.textContent = (error && error.ccCode === 'gone') ? 'Este vídeo não existe mais' : label('toque para tentar de novo');
+      }
+      btn.classList.remove('loading');
+      loading = false;
+    });
+    return wrap;
   };
 
   /* ---------- Menu do grampo: Foto / Vídeo ---------- */
@@ -13222,7 +13292,7 @@
     const promise = new Promise((resolve) => {
       const file = item.file;
       const canRecord = window.MediaRecorder && HTMLCanvasElement.prototype.captureStream;
-      const small = file.size <= item.duration * 60 * 1024 && Math.max(item.width, item.height) <= VIDEO_OUT_SIDE;
+      const small = file.size <= item.duration * 50 * 1024 && Math.max(item.width, item.height) <= VIDEO_OUT_SIDE;
       if (!canRecord || small) { resolve(null); return; }
 
       const mimes = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
@@ -13296,10 +13366,12 @@
   const uploadErrorText = (error) => {
     const code = error && error.ccCode;
     if (code === 'not-plus') return 'Enviar vídeos é exclusivo para quem tem Cluster+ ativo.';
-    if (code === 'storage-unavailable') {
+    if (code === 'format') return 'Formato não suportado. Use um vídeo MP4 ou WEBM.';
+    if (code === 'too-big') return 'Mesmo otimizado, este vídeo ficou grande demais. Envie um mais curto.';
+    if (code === 'upload-failed') {
       const admin = api() && api().isCreator && api().isCreator();
-      return admin
-        ? 'O Firebase Storage recusou o envio (' + (error.detail || 'erro') + '). Ative o Storage e publique o arquivo storage.rules.'
+      return admin && /permission-denied/i.test(error.detail || '')
+        ? 'O Firestore recusou (permission-denied): publique o firestore.rules novo (coleção videoClips).'
         : 'Não foi possível enviar o vídeo agora. Verifique a conexão e tente de novo.';
     }
     return 'Não foi possível enviar o vídeo. Tente de novo.';
@@ -13354,8 +13426,8 @@
       if (chatName() !== vChatName) {      // a conversa mudou durante o envio
         setInfo('A conversa foi trocada durante o envio. Abra a conversa certa e envie o vídeo de novo.', true);
       } else {
-        const size = item.width && item.height ? ':' + item.width + 'x' + item.height : '';
-        const ok = await window.__clustercordSendRaw(VIDEO_MARKER + size + ']]' + out.url);
+        const dims = item.width && item.height ? ':' + item.width + 'x' + item.height + ':' + (out.size || toSend.size) : '';
+        const ok = await window.__clustercordSendRaw(VIDEO_MARKER + dims + ']]' + out.url);
         if (ok) { closeVideo(); return; }
         setInfo('O vídeo foi enviado, mas a mensagem não saiu. Verifique a conexão e tente de novo.', true);
       }
