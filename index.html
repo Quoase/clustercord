@@ -1513,11 +1513,6 @@
         <input type="password" id="password" placeholder="Sua senha secreta">
       </div>
       
-      <div class="input-group">
-        <label for="userid">Código de acesso (opcional)</label>
-        <input type="password" id="userid" placeholder="Não é usado para autenticação">
-      </div>
-      
       <div id="auth-mode-toggle" aria-label="Modo de autenticação">
         <button type="button" id="btn-mode-login" class="active">Entrar</button>
         <button type="button" id="btn-mode-register">Criar conta</button>
@@ -1763,6 +1758,20 @@
     </div>
   </div>
 
+  <style>
+    /* Trocar senha (somente dentro de Personalizar Perfil) */
+    #profile-modal .modal { max-height: 90vh; overflow-y: auto; }
+    #cc-pw-section { border-top: 1px solid var(--border-color); margin-top: 0.4rem; padding-top: 1rem; margin-bottom: 1rem; }
+    #cc-pw-section .cc-pw-title { font-size: 0.85rem; font-weight: 700; margin-bottom: 0.8rem; color: var(--text-main, #fff); }
+    #cc-pw-section .btn-main { margin-top: 0.2rem; }
+    #cc-pw-msg { display: none; font-size: 0.85rem; text-align: center; margin-top: 0.7rem; padding: 0.6rem; border-radius: 6px; }
+    #cc-pw-msg.cc-pw-err { display: block; color: var(--accent-danger); background: rgba(255, 77, 77, 0.1); border: 1px solid rgba(255, 77, 77, 0.3); }
+    #cc-pw-msg.cc-pw-ok { display: block; color: #3ddc84; background: rgba(61, 220, 132, 0.1); border: 1px solid rgba(61, 220, 132, 0.3); }
+  </style>
+  <style>
+    /* Agrupamento da barra lateral: divisória entre Directs e Grupos */
+    #cc-dm-box + .section-title { border-top: 1px solid var(--border-color); margin-top: 0.7rem; }
+  </style>
   <!-- MODAL: EDITAR PERFIL -->
   <div id="profile-modal" class="modal-overlay hidden">
     <div class="modal">
@@ -1781,6 +1790,19 @@
       <div class="input-group">
         <label>OU Carregar Imagem Local (Compressão local)</label>
         <input type="file" id="edit-photo-file" accept="image/jpeg,image/png,image/webp,image/avif,image/bmp">
+      </div>
+      <div id="cc-pw-section" class="hidden">
+        <div class="cc-pw-title">🔒 Trocar senha da conta</div>
+        <div class="input-group">
+          <label for="cc-pw-new">Nova senha</label>
+          <input type="password" id="cc-pw-new" placeholder="Mínimo de 6 caracteres" autocomplete="new-password">
+        </div>
+        <div class="input-group">
+          <label for="cc-pw-confirm">Confirmar nova senha</label>
+          <input type="password" id="cc-pw-confirm" placeholder="Repita a nova senha" autocomplete="new-password">
+        </div>
+        <button type="button" class="btn-main" id="cc-pw-btn">Alterar senha</button>
+        <div id="cc-pw-msg"></div>
       </div>
       <button class="btn-main" id="btn-save-profile">Salvar Alterações</button>
     </div>
@@ -1895,7 +1917,7 @@
   <!-- FIREBASE SDK -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updatePassword } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
     import { 
       getFirestore, doc, setDoc, getDoc, updateDoc, collection, addDoc, 
       query, where, onSnapshot, serverTimestamp, arrayUnion, arrayRemove, increment, 
@@ -2486,7 +2508,7 @@
 
     btnLogin.addEventListener('click', handleLogin);
 
-    [inputNickname, inputPassword, inputUserId].forEach(input => {
+    [inputNickname, inputPassword].forEach(input => {
       input.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') handleLogin();
       });
@@ -3116,12 +3138,15 @@
     }
 
     function renderSidebar() {
-      contactListEl.innerHTML = '<div class="section-title">Directs</div>';
+      contactListEl.innerHTML = '<div class="section-title">Directs</div><div id="cc-dm-box"></div><div class="section-title">Grupos</div><div id="cc-group-box"></div>';
+      const dmBox = contactListEl.querySelector('#cc-dm-box');
+      const groupBox = contactListEl.querySelector('#cc-group-box');
 
       const renderVersion = (renderSidebar._version = (renderSidebar._version || 0) + 1);
       const contacts = [...new Set((userProfile.contacts || []).filter(nick => typeof nick === 'string' && nick.trim()))];
-      contacts.forEach(async (nick) => {
+      contacts.forEach(async (nick, ccIndex) => {
         const item = document.createElement('div');
+        item.dataset.ccOrder = String(ccIndex);
         item.className = `contact-item ${activeChat?.id === nick ? 'active' : ''}`;
         item.onclick = () => selectDirectChat(nick);
 
@@ -3142,19 +3167,15 @@
         const contactAvatar = item.querySelector('.avatar');
         contactAvatar.dataset.clustercordAvatarNick = nick;
         window.__clustercordApplyFrame?.(contactAvatar, data);
-        contactListEl.appendChild(item);
+        const ccSlot = [...dmBox.children].find(el => Number(el.dataset.ccOrder) > ccIndex);
+        dmBox.insertBefore(item, ccSlot || null);
       });
-
-      const groupsTitle = document.createElement('div');
-      groupsTitle.className = 'section-title';
-      groupsTitle.innerText = 'Grupos';
-      contactListEl.appendChild(groupsTitle);
 
       if (unsubscribeGroups) unsubscribeGroups();
 
       const q = query(collection(db, "groups"), where("memberUids", "array-contains", authenticatedUid));
       unsubscribeGroups = onSnapshot(q, (snapshot) => {
-        snapshot.forEach((docSnap) => {
+        [...snapshot.docs].sort((a, b) => String(a.data().name || '').localeCompare(String(b.data().name || ''), 'pt-BR', { sensitivity: 'base' })).forEach((docSnap) => {
           const group = docSnap.data();
           const gId = docSnap.id;
 
@@ -3162,7 +3183,6 @@
           if (!groupItem) {
             groupItem = document.createElement('div');
             groupItem.id = `group-item-${gId}`;
-            contactListEl.appendChild(groupItem);
           }
 
           const unread = getGroupUnreadCount(gId, group.channels || ['geral']);
@@ -3177,6 +3197,7 @@
             </div>
             ${createUnreadBadge(unread)}
           `;
+          groupBox.appendChild(groupItem);
         });
       });
     }
@@ -5599,6 +5620,66 @@
       await updateDoc(doc(db, "users", currentUser), { bio: bio, photo: photo });
       document.getElementById('profile-modal').classList.add('hidden');
     };
+
+    /* ===== Trocar senha (só para quem está logado) ===== */
+    (function () {
+      const section = document.getElementById('cc-pw-section');
+      const btn = document.getElementById('cc-pw-btn');
+      const msg = document.getElementById('cc-pw-msg');
+      const fNew = document.getElementById('cc-pw-new');
+      const fCon = document.getElementById('cc-pw-confirm');
+      const modal = document.getElementById('profile-modal');
+
+      function say(text, ok) {
+        msg.textContent = text;
+        msg.className = ok ? 'cc-pw-ok' : 'cc-pw-err';
+      }
+      function clearAll() {
+        fNew.value = ''; fCon.value = '';
+        msg.textContent = ''; msg.className = '';
+      }
+      function syncVisibility() {
+        const logged = !!(auth.currentUser && currentUser);
+        section.classList.toggle('hidden', !logged);
+        if (modal.classList.contains('hidden')) clearAll();
+      }
+      new MutationObserver(syncVisibility).observe(modal, { attributes: true, attributeFilter: ['class'] });
+
+      btn.addEventListener('click', async () => {
+        const user = auth.currentUser;
+        if (!user || !currentUser) { say('Você precisa estar logado para trocar a senha.', false); return; }
+        const nw = fNew.value, con = fCon.value;
+        if (!nw || !con) { say('Preencha todos os campos.', false); return; }
+        if (nw.length < 6) { say('A nova senha precisa ter pelo menos 6 caracteres.', false); return; }
+        if (nw !== con) { say('A confirmação não é igual à nova senha.', false); return; }
+
+        btn.disabled = true;
+        const oldLabel = btn.textContent;
+        btn.textContent = 'Alterando...';
+        try {
+          await updatePassword(user, nw);
+          clearAll();
+          say('Senha alterada com sucesso! Use a nova senha no próximo login.', true);
+        } catch (err) {
+          console.error('Erro ao trocar a senha:', err);
+          const code = err?.code || '';
+          if (code.includes('auth/weak-password')) {
+            say('A nova senha é muito fraca. Use pelo menos 6 caracteres.', false);
+          } else if (code.includes('auth/too-many-requests')) {
+            say('Muitas tentativas. Aguarde um pouco e tente novamente.', false);
+          } else if (code.includes('auth/requires-recent-login')) {
+            say('Por segurança, saia da conta, entre novamente e tente de novo.', false);
+          } else if (code.includes('auth/network-request-failed')) {
+            say('Sem conexão. Verifique sua internet e tente novamente.', false);
+          } else {
+            say('Não foi possível trocar a senha agora. Tente novamente.', false);
+          }
+        } finally {
+          btn.disabled = false;
+          btn.textContent = oldLabel;
+        }
+      });
+    })();
 
     function compressImage(file) {
       return new Promise((resolve) => {
