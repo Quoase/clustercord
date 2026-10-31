@@ -1387,6 +1387,18 @@
       background: var(--bg-input) !important;
     }
   </style>
+  <style id="cc-mobile-share-style">
+    /* V5.5: durante a transmissão do celular, nada de espelho, efeitos ou avisos por cima da tela capturada */
+    html.cc-mobile-sharing .cc-local-screen,
+    html.cc-mobile-sharing #cc-splash,
+    html.cc-mobile-sharing [class*="toast"],
+    html.cc-mobile-sharing [class*="snow"],
+    html.cc-mobile-sharing [class*="confetti"],
+    html.cc-mobile-sharing .voice-screen-selector { display: none !important; }
+    html.cc-mobile-sharing *, html.cc-mobile-sharing *::before, html.cc-mobile-sharing *::after {
+      animation: none !important; transition: none !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+    }
+  </style>
 </head>
 <body>
 
@@ -2222,6 +2234,7 @@
     function leaveVoiceOnPageExit() {
       const channel = activeVoiceChannel;
       if (!channel || !currentUser) return;
+      if (window.__ccMobileSharing) return; // V5.5: transmitindo do celular, o app vai para segundo plano
       try {
         if (voiceAuthToken) {
           const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(firebaseConfig.projectId)}/databases/(default)/documents/voiceRooms/${encodeURIComponent(channel.groupId)}/participants/${encodeURIComponent(currentUser)}`;
@@ -4081,7 +4094,7 @@
       let video = document.getElementById(videoId);
       if (!video) {
         const wrap = document.createElement('div');
-        wrap.className = 'voice-screen-wrap';
+        wrap.className = 'voice-screen-wrap' + (local ? ' cc-local-screen' : '');
         wrap.dataset.remoteNick = nick;
         wrap.dataset.screenNick = nick;
 
@@ -4237,7 +4250,8 @@
         const params = sender.getParameters();
         if (!params.encodings || !params.encodings.length) return; // ainda não negociado
         const peers = Math.max(1, voicePeers.size);
-        params.encodings[0].maxBitrate = Math.max(700000, Math.min(2500000, Math.floor(6000000 / peers)));
+        params.encodings[0].maxBitrate = Math.max(700000, Math.min(isMobileDevice() ? 1500000 : 2500000, Math.floor(6000000 / peers)));
+        if (isMobileDevice()) params.encodings[0].maxFramerate = 15;
         await sender.setParameters(params);
       } catch (e) {
         /* ajuste opcional: ignora se o navegador não permitir */
@@ -5093,7 +5107,58 @@
       }
     }
 
+
+    // ===== V5.5: transmissão de tela no celular (site + APK) =====
+    // APK: o app nativo captura a tela (MediaProjection) e envia quadros JPEG para window.__ccNativeFrame.
+    // Aqui eles viram um MediaStream (canvas.captureStream) e entram no mesmo WebRTC de sempre.
+    function isMobileDevice() {
+      return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '') || (navigator.maxTouchPoints > 1 && matchMedia('(max-width: 900px)').matches);
+    }
+    function getNativeCaptureBridge() {
+      const b = window.ClustercordAndroid || window.ClustercordNative;
+      return (b && typeof b.startScreenCapture === 'function') ? b : null;
+    }
+    let ccNativeCanvas = null, ccNativeBusy = false, ccWakeLock = null;
+    function captureNativeScreen(bridge) {
+      return new Promise((resolve, reject) => {
+        const canvas = ccNativeCanvas = document.createElement('canvas');
+        canvas.width = 720; canvas.height = 1280;
+        const ctx = canvas.getContext('2d');
+        const stream = canvas.captureStream(15);
+        const timer = setTimeout(() => { cleanup(); reject(new Error('Tempo esgotado esperando a permissão do Android.')); }, 45000);
+        const cleanup = () => { clearTimeout(timer); window.__ccNativeCaptureReady = window.__ccNativeCaptureDenied = null; };
+        window.__ccNativeFrame = (b64) => {
+          if (ccNativeBusy) return; ccNativeBusy = true;
+          const img = new Image();
+          img.onload = () => {
+            if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) { canvas.width = img.naturalWidth; canvas.height = img.naturalHeight; }
+            ctx.drawImage(img, 0, 0); ccNativeBusy = false;
+          };
+          img.onerror = () => { ccNativeBusy = false; };
+          img.src = 'data:image/jpeg;base64,' + b64;
+        };
+        window.__ccNativeCaptureReady = () => { cleanup(); resolve(stream); };
+        window.__ccNativeCaptureDenied = () => { cleanup(); reject(new Error('Permissão de captura negada.')); };
+        // Android encerrou a captura (botão "parar" da notificação ou do sistema)
+        window.__ccNativeCaptureEnded = () => { if (isScreenSharing) toggleScreenShare(); };
+        stream.getVideoTracks()[0].stop = ((orig) => function () { try { bridge.stopScreenCapture(); } catch (e) {} return orig.call(this); })(stream.getVideoTracks()[0].stop);
+        try { bridge.startScreenCapture(); } catch (e) { cleanup(); reject(e); }
+      });
+    }
+    // Enquanto transmite do celular: tira da frente tudo que atrapalha (prévia espelhada, efeitos, avisos) e mantém a tela acesa.
+    function applyMobileShareMode() {
+      const on = !!isScreenSharing && isMobileDevice();
+      window.__ccMobileSharing = on;
+      document.documentElement.classList.toggle('cc-mobile-sharing', on);
+      try {
+        if (on && navigator.wakeLock && !ccWakeLock) navigator.wakeLock.request('screen').then(l => { ccWakeLock = l; l.addEventListener('release', () => { ccWakeLock = null; }); }).catch(() => {});
+        if (!on && ccWakeLock) { ccWakeLock.release().catch(() => {}); ccWakeLock = null; }
+      } catch (e) {}
+    }
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') applyMobileShareMode(); });
+
     function updateVoiceControls() {
+      applyMobileShareMode();
       const inVoice = !!voiceLocalStream;
       if (!voiceControlsEl) return;
 
@@ -5242,6 +5307,8 @@
     }
 
     async function acquireScreenStream() {
+      const nativeBridge = getNativeCaptureBridge();
+      if (nativeBridge) return captureNativeScreen(nativeBridge);
       if (isDesktopApp()) {
         const getSources = getDesktopSourcesFn();
         if (getSources) {
@@ -5287,8 +5354,8 @@
         return;
       }
 
-      if (!navigator.mediaDevices?.getDisplayMedia && !(isDesktopApp() && getDesktopSourcesFn())) {
-        alert('Seu navegador não permite compartilhamento de tela neste ambiente.');
+      if (!getNativeCaptureBridge() && !navigator.mediaDevices?.getDisplayMedia && !(isDesktopApp() && getDesktopSourcesFn())) {
+        alert(isMobileDevice() ? 'Os navegadores do celular (Chrome/Safari) não permitem transmitir a tela. Use o app Clustercord (APK) para transmitir do celular.' : 'Seu navegador não permite compartilhamento de tela neste ambiente.');
         return;
       }
 
