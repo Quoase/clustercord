@@ -2971,6 +2971,14 @@
     // ===== Cluster+ (V5.3, ADITIVO): capa do perfil (foto ou GIF) =====
     const CC_BANNER_DATA_RE = /^data:image\/(?:webp|jpeg|png|gif);base64,[A-Za-z0-9+\/=]+$/;
     const CC_BANNER_MAX_CHARS = 360000;          // ~265 KB: o perfil é lido por outros usuários, então a capa fica leve
+    const CC_BANNER_GIF_HOSTS = ['klipy.com', 'tenor.com', 'giphy.com'];
+    const ccIsBannerGifUrl = (v) => {            // GIF do seletor do Clustercord (só a URL é salva)
+      try {
+        if (typeof v !== 'string' || v.length > 600 || /["'\s\\]/.test(v)) return false;
+        const u = new URL(v);
+        return u.protocol === 'https:' && CC_BANNER_GIF_HOSTS.some(h => u.hostname.toLowerCase().endsWith('.' + h));
+      } catch (e) { return false; }
+    };
 
     async function saveClusterPlusBanner(change) {
       if (!currentUser || !authenticatedUid || !change || !('image' in change)) return 'error';
@@ -2979,7 +2987,7 @@
         update.ccBanner = null;                    // excluir
       } else {
         const img = String(change.image || '');
-        if (img.length > CC_BANNER_MAX_CHARS || !CC_BANNER_DATA_RE.test(img)) return 'error';
+        if (!ccIsBannerGifUrl(img) && (img.length > CC_BANNER_MAX_CHARS || !CC_BANNER_DATA_RE.test(img))) return 'error';
         update.ccBanner = img;                     // escolher / trocar
       }
       let result = 'error';
@@ -6732,6 +6740,7 @@
       let gifTargetInput = null;
       let gifSearchTimer = null;
       let gifRequestId = 0;
+      let gifPickHandler = null;   // capa do perfil: recebe a URL escolhida em vez de inserir em um campo
 
       const gifStyle = document.createElement('style');
       gifStyle.textContent = `
@@ -7044,6 +7053,7 @@
       };
 
       const closePicker = () => {
+        gifPickHandler = null;
         picker.style.display = 'none';
         if (chatGifPlus) {
           chatGifPlus.setAttribute('aria-expanded', 'false');
@@ -7052,6 +7062,19 @@
       };
 
       const insertIntoTarget = (url) => {
+        if (gifPickHandler) {
+          const pickedUrl = String(url || '').trim();
+          if (!isAllowedGifUrl(pickedUrl)) {
+            pickerStatus.textContent =
+              'URL inválida. Use uma URL HTTPS de GIF do KLIPY, Tenor ou GIPHY.';
+            return false;
+          }
+          const handler = gifPickHandler;
+          closePicker();
+          handler(pickedUrl);
+          return true;
+        }
+
         if (!gifTargetInput || !isTextField(gifTargetInput)) return false;
 
         const cleanUrl = String(url || '').trim();
@@ -7126,6 +7149,7 @@
         if (!isTextField(input)) return;
 
         gifTargetInput = input;
+        gifPickHandler = null;
         positionPlusButton(input);
 
         picker.style.display = 'flex';
@@ -7329,6 +7353,27 @@
             'Não foi possível pesquisar agora. Confira sua chave KLIPY e o console do navegador.';
         }
       }
+
+      window.__ccPickGif = (anchor, onPick) => {
+        if (!anchor || typeof onPick !== 'function') return;
+
+        gifTargetInput = anchor;
+        gifPickHandler = onPick;
+
+        picker.style.display = 'flex';
+        pickerSearch.value = '';
+        pickerUrl.value = '';
+        pickerGrid.innerHTML = '';
+        pickerStatus.textContent = KLIPY_API_KEY.trim()
+          ? 'Carregando GIFs em destaque...'
+          : 'A pesquisa precisa de uma chave KLIPY. Cole sua chave em CLUSTERCORD_KLIPY_API_KEY no código.';
+
+        placePicker();
+
+        if (KLIPY_API_KEY.trim()) loadGifs('');
+
+        setTimeout(() => pickerSearch.focus(), 0);
+      };
 
       const openForChat = (event) => {
         event.preventDefault();
@@ -13676,7 +13721,15 @@
   const OUT_RATIO = 2.5;                       // largura / altura da capa
   const QUALITIES = [0.82, 0.7, 0.55, 0.42];
 
-  const validBanner = (value) => typeof value === 'string' && value.length <= BANNER_MAX_CHARS && BANNER_RE.test(value);
+  const BANNER_GIF_HOSTS = ['klipy.com', 'tenor.com', 'giphy.com'];
+  const isBannerGifUrl = (v) => {
+    try {
+      if (typeof v !== 'string' || v.length > 600 || /["'\s\\]/.test(v)) return false;
+      const u = new URL(v);
+      return u.protocol === 'https:' && BANNER_GIF_HOSTS.some(h => u.hostname.toLowerCase().endsWith('.' + h));
+    } catch (e) { return false; }
+  };
+  const validBanner = (value) => typeof value === 'string' && ((value.length <= BANNER_MAX_CHARS && BANNER_RE.test(value)) || isBannerGifUrl(value));
 
   /* ---------- Mostra a capa no topo do perfil (só se o dono tiver Cluster+ ativo) ---------- */
   window.__ccApplyBanner = (el, data) => {
@@ -13697,7 +13750,7 @@
   };
 
   /* ---------- Cartão "Capa do perfil" dentro de Cluster+ ---------- */
-  let card = null, previewEl = null, previewText = null, pickBtn = null, removeBtn = null, noteEl = null, fileInput = null;
+  let card = null, previewEl = null, previewText = null, pickBtn = null, removeBtn = null, noteEl = null, fileInput = null, gifBtn = null;
   let current = null;          // capa atual da conta (data URL) ou null
   let busy = false, armTimer = null;
 
@@ -13719,6 +13772,7 @@
       '<div class="cc-bg-preview" id="cc-banner-preview"><span class="cc-bg-preview-text">Nenhuma capa escolhida</span></div>' +
       '<div class="cc-bg-actions">' +
         '<button type="button" class="cc-bg-btn primary" id="cc-banner-pick">Escolher foto ou GIF</button>' +
+        '<button type="button" class="cc-bg-btn" id="cc-banner-gif">Buscar GIF</button>' +
         '<button type="button" class="cc-bg-btn danger" id="cc-banner-remove" hidden>Excluir</button>' +
       '</div>' +
       '<div class="cc-plus-save-note" id="cc-banner-note" role="status" aria-live="polite"></div>' +
@@ -13732,6 +13786,7 @@
     removeBtn = card.querySelector('#cc-banner-remove');
     noteEl = card.querySelector('#cc-banner-note');
     fileInput = card.querySelector('#cc-banner-file');
+    gifBtn = card.querySelector('#cc-banner-gif');
 
     pickBtn.addEventListener('click', () => {
       if (busy) return;
@@ -13740,6 +13795,13 @@
       fileInput.click();
     });
     fileInput.addEventListener('change', () => { const f = fileInput.files && fileInput.files[0]; if (f) chooseBanner(f); });
+
+    gifBtn.addEventListener('click', () => {
+      if (busy) return;
+      if (!isActive(profile())) { setNote('A capa do perfil é exclusiva para quem tem Cluster+ ativo.', true); return; }
+      if (typeof window.__ccPickGif !== 'function') { setNote('O seletor de GIFs não está disponível agora.', true); return; }
+      window.__ccPickGif(gifBtn, chooseBannerGif);
+    });
 
     removeBtn.addEventListener('click', async () => {
       if (busy) return;
@@ -13767,6 +13829,7 @@
     busy = on;
     if (!card) return;
     pickBtn.disabled = on;
+    if (gifBtn) gifBtn.disabled = on;
     removeBtn.disabled = on;
     previewEl.classList.toggle('busy', on);
   }
@@ -13882,6 +13945,27 @@
       setNote(code === 'gif-big' ? 'Este GIF é pesado demais. Escolha um de até 250 KB.'
         : code === 'too-big' ? 'Não foi possível deixar esta imagem leve o bastante. Tente outra.'
         : 'Não foi possível abrir este arquivo. Tente outro (JPG, PNG, WEBP ou GIF).', true);
+    }
+    setBusy(false);
+  }
+
+  async function chooseBannerGif(url) {
+    const api_ = api();
+    if (!api_ || !isActive(profile())) { setNote('A capa do perfil é exclusiva para quem tem Cluster+ ativo.', true); return; }
+    if (!validBanner(url)) { setNote('Este GIF não pode ser usado como capa. Tente outro.', true); return; }
+
+    setBusy(true);
+    setNote('Salvando…');
+    const before = current;
+    current = url;
+    renderCard();
+    let result = 'error';
+    try { result = await api_.saveBanner({ image: url }); } catch (e) { result = 'error'; }
+    if (result === 'saved') {
+      setNote('Capa salva na sua conta ✓');
+    } else {
+      current = before; renderCard();
+      setNote(result === 'not-plus' ? 'Seu Cluster+ não está ativo.' : 'Não foi possível salvar agora. Tente de novo.', true);
     }
     setBusy(false);
   }
