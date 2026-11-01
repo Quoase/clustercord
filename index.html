@@ -14002,3 +14002,321 @@
   syncBanner();
 })();
 </script>
+
+
+<!-- ===================================================================
+     V5.5.2 (ADITIVO) - "Personalizar Perfil" agora mostra a mesma visão de perfil
+     que os outros veem ao lado do chat (capa, foto, moldura, nome, foguinho, bio e
+     informações: Clustercoins, Sequência de foguinho e Status), em tempo real.
+     Nada do que já existia foi alterado: só entra um bloco novo no topo da janela.
+     =================================================================== -->
+
+<style id="clustercord-profile-preview-v552">
+  #cc-pp { margin: 0 0 1.1rem; }
+  #cc-pp .cc-pp-label {
+    margin-bottom: 0.55rem;
+    color: var(--text-muted);
+    font-size: 0.69rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  #cc-pp .cc-pp-card {
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    background: var(--bg-panel);
+    box-shadow: 0 6px 22px rgba(0,0,0,0.28);
+  }
+  #cc-pp .cc-pp-top {
+    position: relative;
+    height: 100px;
+    border-radius: 13px 13px 0 0;
+    border-bottom: 1px solid var(--border-color);
+    background:
+      radial-gradient(circle at 78% 15%, rgba(0,136,255,0.28), transparent 35%),
+      linear-gradient(145deg, #20232d 0%, #151720 100%);
+  }
+  #cc-pp .cc-pp-top.cc-has-banner { background-color: #151720; }
+  #cc-pp .cc-pp-top.cc-has-banner::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.22), transparent 45%, rgba(0,0,0,0.28));
+  }
+  #cc-pp .cc-pp-avatar-wrap,
+  #cc-pp .cc-pp-avatar-wrap.clustercord-avatar-frame-host {
+    position: absolute !important;
+    left: 18px;
+    bottom: -38px;
+    width: 78px;
+    height: 78px;
+    padding: 4px;
+    border-radius: 50%;
+    background: var(--bg-dark);
+    box-shadow: 0 4px 18px rgba(0,0,0,0.35);
+    box-sizing: border-box;
+  }
+  #cc-pp .cc-pp-avatar {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: var(--accent-blue);
+    color: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.5rem;
+    font-weight: 800;
+    background-size: cover;
+    background-position: center;
+    overflow: hidden;
+  }
+  #cc-pp .cc-pp-body { padding: 48px 16px 14px; }
+  #cc-pp .cc-pp-name-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; min-width: 0; }
+  #cc-pp .cc-pp-name-row .cc-flame-badge { margin-left: 0; }
+  #cc-pp .cc-pp-name {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.28rem;
+    font-weight: 800;
+    line-height: 1.15;
+    word-break: break-word;
+  }
+  #cc-pp .cc-pp-handle { margin-top: 3px; color: var(--text-muted); font-size: 0.76rem; word-break: break-word; }
+  #cc-pp .cc-pp-bio {
+    margin-top: 14px;
+    padding: 11px 13px;
+    border-radius: 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    color: var(--text-main);
+    font-size: 0.85rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #cc-pp .cc-pp-section {
+    margin-top: 16px;
+    margin-bottom: 8px;
+    color: var(--text-muted);
+    font-size: 0.69rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  #cc-pp .cc-pp-stat {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 10px 12px;
+    margin-bottom: 7px;
+    border-radius: 9px;
+    background: rgba(32,34,44,0.72);
+    border: 1px solid var(--border-color);
+  }
+  #cc-pp .cc-pp-stat:last-child { margin-bottom: 0; }
+  #cc-pp .cc-pp-stat-label { color: var(--text-muted); font-size: 0.77rem; }
+  #cc-pp .cc-pp-stat-value { color: var(--text-main); font-size: 0.8rem; font-weight: 700; text-align: right; }
+  #cc-pp .cc-pp-streak-value { display: inline-flex; align-items: center; gap: 0.4rem; }
+  #cc-pp .cc-pp-streak-value[data-tier] { color: var(--cc-fg, var(--text-main)); }
+  #cc-pp .cc-pp-streak-value .cc-flame { width: 18px; height: 18px; }
+  #cc-pp .cc-presence-pill { font-size: 0.8rem; }
+
+  .cc-pp-edit-title {
+    margin: 0.2rem 0 0.9rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--border-color);
+    color: var(--text-main);
+    font-size: 0.95rem;
+    font-weight: 700;
+  }
+</style>
+
+<script id="clustercord-profile-preview-v552-js">
+(() => {
+  'use strict';
+
+  const overlay = document.getElementById('profile-modal');
+  const editModal = document.querySelector('#profile-modal .modal');
+  const header = editModal && editModal.querySelector('.modal-header');
+  const bioInput = document.getElementById('edit-bio');
+  const urlInput = document.getElementById('edit-photo-url');
+  const fileInput = document.getElementById('edit-photo-file');
+  if (!overlay || !editModal || !header || !bioInput || !urlInput || !fileInput) return;
+
+  /* ---------- Estrutura (mesma visão do painel de perfil do chat) ---------- */
+  const box = document.createElement('section');
+  box.id = 'cc-pp';
+  box.setAttribute('aria-label', 'Pré-visualização do seu perfil');
+  box.innerHTML =
+    '<div class="cc-pp-label">Como os outros veem seu perfil</div>' +
+    '<div class="cc-pp-card">' +
+      '<div class="cc-pp-top" id="cc-pp-top">' +
+        '<div class="cc-pp-avatar-wrap" id="cc-pp-avatar-wrap"><div class="cc-pp-avatar" id="cc-pp-avatar"></div></div>' +
+      '</div>' +
+      '<div class="cc-pp-body">' +
+        '<div class="cc-pp-name-row"><div class="cc-pp-name" id="cc-pp-name">Usuário</div><span id="cc-pp-badge-host"></span></div>' +
+        '<div class="cc-pp-handle" id="cc-pp-handle"></div>' +
+        '<div class="cc-pp-bio" id="cc-pp-bio">Sem bio.</div>' +
+        '<div class="cc-pp-section">Informações</div>' +
+        '<div class="cc-pp-stat"><span class="cc-pp-stat-label">Clustercoins</span><span class="cc-pp-stat-value" id="cc-pp-coins">0.0</span></div>' +
+        '<div class="cc-pp-stat"><span class="cc-pp-stat-label">Sequência de foguinho</span><span class="cc-pp-stat-value cc-pp-streak-value" id="cc-pp-streak"></span></div>' +
+        '<div class="cc-pp-stat"><span class="cc-pp-stat-label">Status</span><span class="cc-pp-stat-value" id="cc-pp-status"></span></div>' +
+      '</div>' +
+    '</div>';
+  header.insertAdjacentElement('afterend', box);
+
+  /* Título que separa a visão geral dos campos de edição que já existiam */
+  const firstGroup = editModal.querySelector('.input-group');
+  if (firstGroup) {
+    const title = document.createElement('div');
+    title.className = 'cc-pp-edit-title';
+    title.textContent = 'Editar perfil';
+    firstGroup.insertAdjacentElement('beforebegin', title);
+  }
+
+  const top = box.querySelector('#cc-pp-top');
+  const avatarWrap = box.querySelector('#cc-pp-avatar-wrap');
+  const avatar = box.querySelector('#cc-pp-avatar');
+  const nameEl = box.querySelector('#cc-pp-name');
+  const handleEl = box.querySelector('#cc-pp-handle');
+  const bioEl = box.querySelector('#cc-pp-bio');
+  const badgeHost = box.querySelector('#cc-pp-badge-host');
+  const coinsEl = box.querySelector('#cc-pp-coins');
+  const streakEl = box.querySelector('#cc-pp-streak');
+  const statusEl = box.querySelector('#cc-pp-status');
+
+  const me = () => window.__clustercordUserProfile || null;
+  const plusApi = () => window.__clustercordClusterPlus || null;
+
+  /* ---------- Foto: o que está no campo (URL ou arquivo escolhido) aparece na hora ---------- */
+  let localUrl = null;
+  fileInput.addEventListener('change', () => {
+    if (localUrl) { try { URL.revokeObjectURL(localUrl); } catch (e) {} localUrl = null; }
+    const f = fileInput.files && fileInput.files[0];
+    if (f && /^image\//.test(f.type || '')) { try { localUrl = URL.createObjectURL(f); } catch (e) { localUrl = null; } }
+    refresh();
+  });
+
+  let shownPhoto = null, shownLetter = null, photoToken = 0;
+  const paintAvatar = (photo, letter) => {
+    if (photo === shownPhoto && letter === shownLetter) return;
+    shownPhoto = photo; shownLetter = letter;
+    const token = ++photoToken;
+    avatar.style.backgroundImage = 'none';
+    avatar.textContent = letter;
+    if (!photo) return;
+    const img = new Image();
+    img.onload = () => {
+      if (token !== photoToken) return;
+      avatar.style.backgroundImage = 'url("' + photo.replace(/["\\\r\n]/g, '') + '")';
+      avatar.textContent = '';
+    };
+    img.src = photo;
+  };
+
+  /* ---------- Capa e moldura (só com Cluster+ ativo, igual ao perfil real) ---------- */
+  let shownBannerKey = null, shownFrameKey = null;
+  const paintBannerAndFrame = (data) => {
+    const active = !!(plusApi() && data && plusApi().isActive(data));
+    const bannerKey = (active ? '1' : '0') + '|' + String(data.ccBanner || '');
+    if (bannerKey !== shownBannerKey) {
+      shownBannerKey = bannerKey;
+      if (typeof window.__ccApplyBanner === 'function') window.__ccApplyBanner(top, data);
+    }
+    const frameKey = (active ? '1' : '0') + '|' + String(data.equippedFrame || '');
+    if (frameKey !== shownFrameKey) {
+      shownFrameKey = frameKey;
+      if (typeof window.__clustercordApplyFrame === 'function') window.__clustercordApplyFrame(avatarWrap, data);
+    }
+  };
+
+  /* ---------- Foguinho: usa o mesmo cálculo do cartão de foguinho que já existe nesta janela ---------- */
+  const readStreak = () => {
+    const card = editModal.querySelector('.cc-streak-card');
+    if (!card || card.hidden) return null;
+    const svg = card.querySelector('svg.cc-flame');
+    const title = (card.querySelector('.cc-streak-card-title') || {}).textContent || '';
+    const sub = (card.querySelector('.cc-streak-card-sub') || {}).textContent || '';
+    const count = parseInt(title, 10);
+    if (!svg || !Number.isFinite(count) || count < 1) return null;
+    const countText = title.replace(/\s*seguidos\s*$/, '').trim();
+    const m = sub.match(/Recorde:\s*(.+?)\s*·/);
+    const bestText = m ? m[1].trim() : '';
+    return { count, tier: card.dataset.tier || '1', svg: svg.outerHTML, countText, bestText };
+  };
+
+  let shownStreakKey = null;
+  const paintStreak = () => {
+    const s = readStreak();
+    const key = s ? [s.count, s.tier, s.bestText].join('|') : 'none';
+    if (key === shownStreakKey) return;
+    shownStreakKey = key;
+    if (!s) {
+      badgeHost.innerHTML = '';
+      streakEl.removeAttribute('data-tier');
+      streakEl.textContent = 'Sem sequência ativa';
+      return;
+    }
+    badgeHost.innerHTML =
+      '<span class="cc-flame-badge md" data-tier="' + s.tier + '" data-count="' + s.count + '" data-size="md" role="img" aria-label="Sequência de ' + s.countText + ' seguidos">' + s.svg + '</span>';
+    streakEl.dataset.tier = s.tier;
+    streakEl.innerHTML = s.svg + '<span></span>';
+    streakEl.lastChild.textContent = s.countText + (s.bestText && s.bestText !== s.countText ? ' · recorde ' + s.bestText.replace(/\s*dias?$/, '').trim() : '');
+  };
+
+  /* ---------- Status Online/Offline (como os outros veem, respeitando o botão de presença) ---------- */
+  let shownStatus = null;
+  const paintStatus = (nick) => {
+    let status = 'offline';
+    try { status = window.__clustercordPresenceOf && window.__clustercordPresenceOf(nick) === 'online' ? 'online' : 'offline'; } catch (e) { status = 'offline'; }
+    if (status === shownStatus) return;
+    shownStatus = status;
+    const label = status === 'online' ? 'Online' : 'Offline';
+    statusEl.innerHTML = '<span class="cc-presence-pill" data-status="' + status + '"><span class="cc-presence-dot" data-status="' + status + '"></span><span></span></span>';
+    statusEl.querySelector('.cc-presence-pill > span:last-child').textContent = label;
+    statusEl.firstChild.setAttribute('aria-label', label);
+  };
+
+  /* ---------- Atualização ---------- */
+  const formatCoins = (value) => {
+    const n = Number(value || 0);
+    return Number.isFinite(n) ? n.toFixed(1) : '0.0';
+  };
+
+  function refresh() {
+    const data = me();
+    if (!data) return;
+    const nick = String(data.nick || '');
+    nameEl.textContent = nick || 'Usuário';
+    handleEl.textContent = nick ? '@' + nick : '';
+    bioEl.textContent = bioInput.value.trim() || 'Sem bio.';
+    coinsEl.textContent = formatCoins(data.clustercoins);
+
+    const photo = (fileInput.files && fileInput.files.length > 0 && localUrl) ? localUrl : urlInput.value.trim();
+    paintAvatar(photo, nick.charAt(0).toUpperCase());
+    paintBannerAndFrame(data);
+    paintStreak();
+    paintStatus(nick);
+  }
+
+  bioInput.addEventListener('input', refresh);
+  urlInput.addEventListener('input', refresh);
+
+  /* Ao abrir a janela, mostra o estado real; o botão de presença e o foguinho atualizam a visão na hora */
+  new MutationObserver(() => { if (!overlay.classList.contains('hidden')) refresh(); })
+    .observe(overlay, { attributes: true, attributeFilter: ['class'] });
+  editModal.addEventListener('click', (event) => {
+    if (event.target.closest && event.target.closest('#cc-presence-switch')) {
+      setTimeout(refresh, 250);
+      setTimeout(refresh, 1200);
+    }
+  });
+  const streakCard = editModal.querySelector('.cc-streak-card');
+  if (streakCard) new MutationObserver(refresh).observe(streakCard, { attributes: true, childList: true, subtree: true });
+
+  window.addEventListener('clustercord-profile-updated', refresh);
+  setInterval(() => { if (!overlay.classList.contains('hidden')) refresh(); }, 2000);
+
+  refresh();
+})();
+</script>
