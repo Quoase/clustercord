@@ -1748,6 +1748,7 @@
       <div id="channels-bar" class="channels-bar hidden"></div>
       <div class="chat-messages" id="chat-messages"></div>
       <div id="typing-indicator" aria-live="polite" style="display:none; padding:0.15rem 1rem; min-height:1.2em; color:var(--text-muted); font-size:0.75rem;"></div>
+      <div id="cc-coindrop-banner" role="status" aria-live="polite"></div>
 
       <div class="chat-input-area">
         <button type="button" id="chat-gif-plus" class="chat-gif-plus" title="Enviar GIF" aria-label="Abrir seletor de GIFs">+</button>
@@ -1777,6 +1778,101 @@
     </div>
   </div>
 
+  <!-- V5.6 (ADITIVO): transferência de Clustercoins (soltar) em chats diretos -->
+  <style id="cc-coindrop-v56-css">
+    #cc-coindrop-banner {
+      display: none;
+      align-items: center;
+      gap: 0.6rem 0.8rem;
+      flex-wrap: wrap;
+      flex-shrink: 0;
+      margin: 0.5rem 0.8rem 0;
+      padding: 0.6rem 0.85rem;
+      border: 1px solid rgba(255, 196, 0, 0.45);
+      background: rgba(255, 196, 0, 0.10);
+      border-radius: 10px;
+      font-size: 0.85rem;
+      color: var(--text-main);
+    }
+    #cc-coindrop-banner.show { display: flex; }
+    #cc-coindrop-banner .cc-cd-text { flex: 1 1 180px; min-width: 0; line-height: 1.35; }
+    #cc-coindrop-banner .cc-cd-timer { font-variant-numeric: tabular-nums; font-weight: 700; }
+    #cc-coindrop-banner .cc-cd-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    #cc-coindrop-banner .btn-small { min-height: 32px; padding: 0 0.9rem; }
+    #cc-coindrop-banner .btn-small[disabled] { opacity: 0.55; cursor: default; }
+    #cc-coindrop-banner.cc-cd-ok { border-color: rgba(61, 220, 132, 0.45); background: rgba(61, 220, 132, 0.10); }
+    #cc-coindrop-banner.cc-cd-err { border-color: rgba(255, 77, 77, 0.45); background: rgba(255, 77, 77, 0.10); }
+
+    #cc-coindrop-modal .cc-cd-balance { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.9rem; }
+    #cc-coindrop-modal .cc-cd-balance strong { color: var(--text-main); }
+    #cc-coindrop-modal .cc-cd-chips { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.1rem 0 1rem; }
+    #cc-coindrop-modal .cc-cd-chip {
+      padding: 0.4rem 0.8rem;
+      border-radius: 999px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-input);
+      color: var(--text-main);
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #cc-coindrop-modal .cc-cd-chip:hover:not([disabled]) { border-color: var(--text-muted); }
+    #cc-coindrop-modal .cc-cd-chip[disabled] { opacity: 0.4; cursor: default; }
+    #cc-coindrop-modal .cc-cd-rules { font-size: 0.75rem; color: var(--text-muted); line-height: 1.45; margin: 0.2rem 0 1rem; }
+    #cc-coindrop-modal #cc-cd-msg { display: none; font-size: 0.85rem; text-align: center; margin: 0.2rem 0 0.8rem; padding: 0.6rem; border-radius: 6px; }
+    #cc-coindrop-modal #cc-cd-msg.cc-cd-err { display: block; color: var(--accent-danger); background: rgba(255, 77, 77, 0.1); border: 1px solid rgba(255, 77, 77, 0.3); }
+    #cc-coindrop-modal #cc-cd-msg.cc-cd-ok { display: block; color: #3ddc84; background: rgba(61, 220, 132, 0.1); border: 1px solid rgba(61, 220, 132, 0.3); }
+    #cc-coindrop-modal .btn-main[disabled] { opacity: 0.55; cursor: default; }
+
+    #cc-coindrop-toast {
+      position: fixed;
+      top: 14px;
+      left: 50%;
+      transform: translate(-50%, -140%);
+      z-index: 300;
+      max-width: min(92vw, 420px);
+      padding: 0.75rem 1rem;
+      border-radius: 12px;
+      background: var(--bg-panel);
+      color: var(--text-main);
+      border: 1px solid rgba(255, 196, 0, 0.55);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+      font-size: 0.85rem;
+      line-height: 1.35;
+      cursor: pointer;
+      opacity: 0;
+      pointer-events: none;
+      transition: transform 0.25s ease, opacity 0.25s ease;
+    }
+    #cc-coindrop-toast.show { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; }
+  </style>
+  <div id="cc-coindrop-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <span id="cc-cd-title">Soltar Clustercoins</span>
+        <span class="close-modal" id="cc-cd-close">✕</span>
+      </div>
+      <div class="cc-cd-balance">Seu saldo: <strong id="cc-cd-balance">◈ 0</strong></div>
+      <div class="input-group">
+        <label for="cc-cd-amount">Quantidade (valor inteiro, de 1 a 500)</label>
+        <input type="number" id="cc-cd-amount" min="1" max="500" step="1" inputmode="numeric" placeholder="Ex: 100">
+      </div>
+      <div class="cc-cd-chips" id="cc-cd-chips">
+        <button type="button" class="cc-cd-chip" data-v="10">10</button>
+        <button type="button" class="cc-cd-chip" data-v="50">50</button>
+        <button type="button" class="cc-cd-chip" data-v="100">100</button>
+        <button type="button" class="cc-cd-chip" data-v="250">250</button>
+        <button type="button" class="cc-cd-chip" data-v="500">500</button>
+      </div>
+      <div class="cc-cd-rules">
+        As Clustercoins ficam "soltas" no chat. A outra pessoa pode pegar. Se ninguém pegar em 5 minutos, o valor volta para a sua conta.
+        Limite de 500 por transferência e apenas 1 transferência por dia.
+      </div>
+      <div id="cc-cd-msg" role="alert"></div>
+      <button type="button" class="btn-main" id="cc-cd-send">Soltar</button>
+    </div>
+  </div>
+  <div id="cc-coindrop-toast" role="status" aria-live="polite"></div>
   <style>
     /* Trocar senha (somente dentro de Personalizar Perfil) */
     #profile-modal .modal { max-height: 90vh; overflow-y: auto; }
@@ -2619,6 +2715,7 @@
       });
 
       ouvirNovasConversasEPaginas();
+      ccCoinDropStartReturner(); // V5.6: devolve Clustercoins soltas que ninguém pegou em 5 minutos
     }
 
     document.getElementById('btn-logout').addEventListener('click', async () => {
@@ -3302,6 +3399,502 @@
       });
     }
 
+    /* ===== V5.6 (ADITIVO): soltar Clustercoins em chats diretos =====
+     * Fluxo: quem dá "solta" N Clustercoins (o valor sai da conta na hora e fica em custódia no documento
+     * coinDrops). O outro lado pode pegar; se ninguém pegar em 5 minutos, o valor volta para quem deu.
+     * Nenhum usuário grava no documento de outro: o receptor soma na PRÓPRIA conta ao pegar e o remetente
+     * soma de volta na PRÓPRIA conta quando o prazo acaba.
+     * Regras: só chats diretos, valor inteiro de 1 a 500, nunca mais do que o saldo, 1 transferência por dia. */
+    const CC_DROP_MAX = 500;
+    const CC_DROP_TTL_MS = 5 * 60 * 1000;
+    const ccDropState = {
+      chatNick: null,
+      unsubIn: null,
+      unsubOut: null,
+      incoming: [],
+      outgoing: [],
+      prevOutgoing: new Map(),
+      dismissed: new Set(),
+      flash: null,
+      sig: '',
+      returnerUnsub: null,
+      returnerTimer: null,
+      returnerDocs: [],
+      busy: new Set(),
+      retryAfter: new Map(),
+      globalUnsub: null,
+      announced: new Set(),
+      toastTimer: null,
+      modalTarget: null,
+      modalBusy: false
+    };
+
+    function ccDropDayKey(nowMs) {
+      // "Dia" = dia de Brasília (UTC-3). Mesmo formato validado pelas Firestore Rules.
+      const t = new Date(nowMs - 3 * 3600 * 1000);
+      return t.getUTCFullYear() + '-' + (t.getUTCMonth() + 1) + '-' + t.getUTCDate();
+    }
+
+    function ccDropCreatedMs(data) {
+      const c = data && data.createdAt;
+      return c && typeof c.toMillis === 'function' ? c.toMillis() : Date.now();
+    }
+
+    function ccDropAmount(data) {
+      const n = Math.floor(Number(data && data.amount));
+      return Number.isFinite(n) ? Math.min(CC_DROP_MAX, Math.max(0, n)) : 0;
+    }
+
+    function ccDropFormatTime(ms) {
+      const total = Math.max(0, Math.ceil(ms / 1000));
+      return Math.floor(total / 60) + ':' + String(total % 60).padStart(2, '0');
+    }
+
+    function ccDropMyCoins() {
+      const n = Number((userProfile && userProfile.clustercoins) || 0);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function ccCoinDropAttachButton(actionsArea, targetNick) {
+      if (!actionsArea || !targetNick) return;
+      const btn = document.createElement('button');
+      btn.className = 'btn-small btn-secondary';
+      btn.id = 'cc-coindrop-open';
+      btn.innerText = '💰 Soltar Clustercoins';
+      btn.onclick = () => ccCoinDropOpenModal(targetNick);
+      actionsArea.appendChild(btn);
+    }
+
+    // ---------- Criar / pegar / devolver ----------
+    async function ccCoinDropCreate(toNick, amount) {
+      if (!currentUser || !authenticatedUid) return 'error';
+      if (!Number.isInteger(amount) || amount < 1 || amount > CC_DROP_MAX) return 'invalid';
+
+      const target = await getUserData(toNick);
+      if (!target || !target.uid) return 'no-uid';
+      if (target.uid === authenticatedUid) return 'invalid';
+
+      const now = await getClusterstoreNow();
+      const dropId = authenticatedUid + '_' + ccDropDayKey(now); // 1 documento por usuário por dia = 1 transferência por dia
+      const dropRef = doc(db, 'coinDrops', dropId);
+      const userRef = doc(db, 'users', currentUser);
+      let result = 'error';
+
+      try {
+        await runTransaction(db, async (transaction) => {
+          const userSnap = await transaction.get(userRef);
+          const dropSnap = await transaction.get(dropRef);
+          if (!userSnap.exists()) return;
+          if (dropSnap.exists()) { result = 'already-today'; return; }
+
+          const coins = Number(userSnap.data().clustercoins || 0);
+          if (!Number.isFinite(coins) || coins < amount) { result = 'insufficient'; return; }
+
+          transaction.update(userRef, { clustercoins: Math.round((coins - amount) * 10) / 10 });
+          transaction.set(dropRef, {
+            chatId: [currentUser, toNick].sort().join('_'),
+            fromNick: currentUser,
+            fromUid: authenticatedUid,
+            toNick: toNick,
+            toUid: target.uid,
+            amount: amount,
+            status: 'open',
+            createdAt: serverTimestamp()
+          });
+          result = 'ok';
+        });
+      } catch (error) {
+        console.error('Erro ao soltar Clustercoins:', error);
+        result = error && error.code === 'permission-denied' ? 'denied' : 'error';
+      }
+      return result;
+    }
+
+    async function ccCoinDropClaim(dropId) {
+      if (!currentUser || !authenticatedUid) return 'error';
+      const dropRef = doc(db, 'coinDrops', dropId);
+      const userRef = doc(db, 'users', currentUser);
+      let result = 'error';
+
+      try {
+        await runTransaction(db, async (transaction) => {
+          const dropSnap = await transaction.get(dropRef);
+          const userSnap = await transaction.get(userRef);
+          if (!dropSnap.exists() || !userSnap.exists()) return;
+
+          const d = dropSnap.data({ serverTimestamps: 'estimate' });
+          if (d.toUid !== authenticatedUid) { result = 'forbidden'; return; }
+          if (d.status === 'claimed') { result = 'taken'; return; }
+          if (d.status !== 'open') { result = 'expired'; return; }
+          if (Date.now() >= ccDropCreatedMs(d) + CC_DROP_TTL_MS) { result = 'expired'; return; }
+
+          const amount = ccDropAmount(d);
+          if (amount < 1) return;
+          const coins = Number(userSnap.data().clustercoins || 0);
+          transaction.update(userRef, {
+            clustercoins: Math.round(((Number.isFinite(coins) ? coins : 0) + amount) * 10) / 10
+          });
+          transaction.update(dropRef, { status: 'claimed', claimedAt: serverTimestamp() });
+          result = 'claimed:' + amount;
+        });
+      } catch (error) {
+        console.error('Erro ao pegar Clustercoins:', error);
+        result = error && error.code === 'permission-denied' ? 'expired' : 'error';
+      }
+      return result;
+    }
+
+    async function ccCoinDropReturn(dropId) {
+      if (!currentUser || !authenticatedUid) return 'error';
+      const dropRef = doc(db, 'coinDrops', dropId);
+      const userRef = doc(db, 'users', currentUser);
+      let result = 'error';
+
+      try {
+        await runTransaction(db, async (transaction) => {
+          const dropSnap = await transaction.get(dropRef);
+          const userSnap = await transaction.get(userRef);
+          if (!dropSnap.exists() || !userSnap.exists()) return;
+
+          const d = dropSnap.data({ serverTimestamps: 'estimate' });
+          if (d.fromUid !== authenticatedUid) { result = 'forbidden'; return; }
+          if (d.status !== 'open') { result = 'done'; return; }
+          if (Date.now() < ccDropCreatedMs(d) + CC_DROP_TTL_MS) { result = 'early'; return; }
+
+          const amount = ccDropAmount(d);
+          const coins = Number(userSnap.data().clustercoins || 0);
+          transaction.update(userRef, {
+            clustercoins: Math.round(((Number.isFinite(coins) ? coins : 0) + amount) * 10) / 10
+          });
+          transaction.update(dropRef, { status: 'returned', returnedAt: serverTimestamp() });
+          result = 'returned:' + amount;
+        });
+      } catch (error) {
+        console.error('Erro ao devolver Clustercoins:', error);
+        result = 'error';
+      }
+      return result;
+    }
+
+    // ---------- Devolução automática (roda no login; cobre quem estava offline quando o prazo acabou) ----------
+    function ccCoinDropReturnTick() {
+      const now = Date.now();
+      ccDropState.returnerDocs.forEach(({ id, data }) => {
+        if (data.status !== 'open') return;
+        if (now < ccDropCreatedMs(data) + CC_DROP_TTL_MS) return;
+        if (ccDropState.busy.has(id)) return;
+        if ((ccDropState.retryAfter.get(id) || 0) > now) return;
+
+        ccDropState.busy.add(id);
+        ccCoinDropReturn(id).then((res) => {
+          ccDropState.busy.delete(id);
+          if (res.startsWith('returned:')) {
+            const n = res.split(':')[1];
+            ccCoinDropFlash('↩️ As ◈ ' + n + ' Clustercoins que você soltou não foram pegas e voltaram para a sua conta.', 'ok', 9000);
+          } else if (res !== 'done') {
+            ccDropState.retryAfter.set(id, Date.now() + 20000);
+          }
+        });
+      });
+    }
+
+    function ccCoinDropStartReturner() {
+      if (ccDropState.returnerUnsub || !authenticatedUid) return;
+      try {
+        const q = query(
+          collection(db, 'coinDrops'),
+          where('fromUid', '==', authenticatedUid),
+          where('status', '==', 'open')
+        );
+        ccDropState.returnerUnsub = onSnapshot(q, (snap) => {
+          ccDropState.returnerDocs = snap.docs.map(d => ({ id: d.id, data: d.data({ serverTimestamps: 'estimate' }) }));
+          ccCoinDropReturnTick();
+        }, (error) => console.error('Erro ao acompanhar Clustercoins soltas:', error));
+        ccDropState.returnerTimer = setInterval(ccCoinDropReturnTick, 5000);
+
+        // Aviso de Clustercoins soltas para você (mesmo fora do chat da pessoa).
+        const qIn = query(
+          collection(db, 'coinDrops'),
+          where('toUid', '==', authenticatedUid),
+          where('status', '==', 'open')
+        );
+        ccDropState.globalUnsub = onSnapshot(qIn, (snap) => {
+          snap.docs.forEach((d) => {
+            if (ccDropState.announced.has(d.id)) return;
+            const data = d.data({ serverTimestamps: 'estimate' });
+            if (Date.now() >= ccDropCreatedMs(data) + CC_DROP_TTL_MS) return;
+            ccDropState.announced.add(d.id);
+            ccCoinDropToast(data);
+          });
+        }, (error) => console.error('Erro ao acompanhar Clustercoins recebidas:', error));
+      } catch (error) {
+        console.error('Erro ao iniciar Clustercoins soltas:', error);
+      }
+    }
+
+    function ccCoinDropToast(data) {
+      const toastEl = document.getElementById('cc-coindrop-toast');
+      if (!toastEl) return;
+      const from = String(data.fromNick || 'Alguém');
+      toastEl.textContent = '💰 ' + from + ' soltou ◈ ' + ccDropAmount(data) + ' Clustercoins para você! Toque para abrir a conversa e pegar.';
+      toastEl.onclick = () => {
+        toastEl.classList.remove('show');
+        if (data.fromNick) selectDirectChat(data.fromNick);
+      };
+      toastEl.classList.add('show');
+      clearTimeout(ccDropState.toastTimer);
+      ccDropState.toastTimer = setTimeout(() => toastEl.classList.remove('show'), 8000);
+    }
+
+    // ---------- Faixa dentro do chat direto ----------
+    function ccCoinDropFlash(text, kind, ms) {
+      ccDropState.flash = { text: text, kind: kind || 'ok', until: Date.now() + (ms || 6000) };
+      ccCoinDropRender();
+    }
+
+    function ccCoinDropWatchChat(nick) {
+      try { ccDropState.unsubIn?.(); } catch (e) {}
+      try { ccDropState.unsubOut?.(); } catch (e) {}
+      ccDropState.unsubIn = null;
+      ccDropState.unsubOut = null;
+      ccDropState.incoming = [];
+      ccDropState.outgoing = [];
+      ccDropState.prevOutgoing = new Map();
+      ccDropState.sig = '';
+      ccDropState.chatNick = nick || null;
+
+      if (nick && currentUser && authenticatedUid) {
+        const chatId = [currentUser, nick].sort().join('_');
+        try {
+          const qIn = query(
+            collection(db, 'coinDrops'),
+            where('chatId', '==', chatId),
+            where('toUid', '==', authenticatedUid),
+            where('status', '==', 'open')
+          );
+          ccDropState.unsubIn = onSnapshot(qIn, (snap) => {
+            ccDropState.incoming = snap.docs.map(d => ({ id: d.id, data: d.data({ serverTimestamps: 'estimate' }) }));
+            ccCoinDropRender();
+          }, (error) => console.error('Erro ao ler Clustercoins recebidas:', error));
+
+          const qOut = query(
+            collection(db, 'coinDrops'),
+            where('chatId', '==', chatId),
+            where('fromUid', '==', authenticatedUid),
+            where('status', '==', 'open')
+          );
+          ccDropState.unsubOut = onSnapshot(qOut, (snap) => {
+            const next = new Map(snap.docs.map(d => [d.id, d.data({ serverTimestamps: 'estimate' })]));
+            // Sumiu da lista de abertas sem ser devolução automática = a outra pessoa pegou.
+            ccDropState.prevOutgoing.forEach((data, id) => {
+              if (next.has(id) || ccDropState.busy.has(id)) return;
+              if (Date.now() >= ccDropCreatedMs(data) + CC_DROP_TTL_MS - 1500) return;
+              ccCoinDropFlash('✅ ' + (data.toNick || 'A pessoa') + ' pegou as suas ◈ ' + ccDropAmount(data) + ' Clustercoins!', 'ok', 9000);
+            });
+            ccDropState.prevOutgoing = next;
+            ccDropState.outgoing = [...next.entries()].map(([id, data]) => ({ id, data }));
+            ccCoinDropRender();
+          }, (error) => console.error('Erro ao ler Clustercoins soltas:', error));
+        } catch (error) {
+          console.error('Erro ao acompanhar o chat:', error);
+        }
+      }
+      ccCoinDropRender();
+    }
+
+    function ccCoinDropRender() {
+      const banner = document.getElementById('cc-coindrop-banner');
+      if (!banner) return;
+
+      const inDirect = activeChat && activeChat.type === 'direct' && activeChat.id === ccDropState.chatNick;
+      if (!inDirect) {
+        if (ccDropState.chatNick) { ccCoinDropWatchChat(null); return; }
+        banner.className = '';
+        banner.innerHTML = '';
+        ccDropState.sig = '';
+        return;
+      }
+
+      const now = Date.now();
+      const alive = (x) => now < ccDropCreatedMs(x.data) + CC_DROP_TTL_MS;
+      const incoming = ccDropState.incoming.find(alive) || null;
+      const outgoing = ccDropState.outgoing.find(alive) || null;
+      const flash = ccDropState.flash && ccDropState.flash.until > now ? ccDropState.flash : null;
+
+      let sig = '';
+      let build = null;
+      let endsAt = 0;
+      let kindClass = '';
+
+      if (flash) {
+        sig = 'flash:' + flash.text;
+        kindClass = flash.kind === 'err' ? ' cc-cd-err' : ' cc-cd-ok';
+        build = () => '<div class="cc-cd-text">' + escapeHtml(flash.text) + '</div>';
+      } else if (incoming) {
+        const left = ccDropState.dismissed.has(incoming.id);
+        sig = 'in:' + incoming.id + ':' + (left ? 'left' : 'ask');
+        endsAt = ccDropCreatedMs(incoming.data) + CC_DROP_TTL_MS;
+        const from = escapeHtml(incoming.data.fromNick || 'Alguém');
+        const amt = ccDropAmount(incoming.data);
+        build = () => left
+          ? '<div class="cc-cd-text">Você deixou as ◈ ' + amt + ' Clustercoins de <b>' + from + '</b> no chão. Elas voltam para a conta dele em <span class="cc-cd-timer">–</span>.</div>' +
+            '<div class="cc-cd-actions"><button type="button" class="btn-small" data-cd="claim">Pegar</button></div>'
+          : '<div class="cc-cd-text">💰 <b>' + from + '</b> soltou ◈ ' + amt + ' Clustercoins para você! Expira em <span class="cc-cd-timer">–</span>.</div>' +
+            '<div class="cc-cd-actions"><button type="button" class="btn-small" data-cd="claim">Pegar</button>' +
+            '<button type="button" class="btn-small btn-secondary" data-cd="leave">Deixar lá</button></div>';
+      } else if (outgoing) {
+        sig = 'out:' + outgoing.id;
+        endsAt = ccDropCreatedMs(outgoing.data) + CC_DROP_TTL_MS;
+        const to = escapeHtml(outgoing.data.toNick || 'a pessoa');
+        const amt = ccDropAmount(outgoing.data);
+        build = () => '<div class="cc-cd-text">💰 Você soltou ◈ ' + amt + ' Clustercoins para <b>' + to + '</b>. Se ninguém pegar, voltam para você em <span class="cc-cd-timer">–</span>.</div>';
+      }
+
+      if (!build) {
+        banner.className = '';
+        banner.innerHTML = '';
+        ccDropState.sig = '';
+        return;
+      }
+
+      if (sig !== ccDropState.sig) {
+        ccDropState.sig = sig;
+        banner.className = 'show' + kindClass;
+        banner.innerHTML = build();
+        const claimBtn = banner.querySelector('[data-cd="claim"]');
+        const leaveBtn = banner.querySelector('[data-cd="leave"]');
+        if (claimBtn && incoming) {
+          claimBtn.onclick = async () => {
+            claimBtn.disabled = true;
+            const res = await ccCoinDropClaim(incoming.id);
+            if (res.startsWith('claimed:')) {
+              ccCoinDropFlash('✅ Você pegou ◈ ' + res.split(':')[1] + ' Clustercoins!', 'ok', 7000);
+            } else if (res === 'taken') {
+              ccCoinDropFlash('Essas Clustercoins já foram pegas.', 'err', 6000);
+            } else if (res === 'expired') {
+              ccCoinDropFlash('O prazo acabou: as Clustercoins voltaram para quem soltou.', 'err', 6000);
+            } else {
+              claimBtn.disabled = false;
+              ccCoinDropFlash('Não foi possível pegar agora. Tente de novo.', 'err', 5000);
+            }
+          };
+        }
+        if (leaveBtn && incoming) {
+          leaveBtn.onclick = () => { ccDropState.dismissed.add(incoming.id); ccDropState.sig = ''; ccCoinDropRender(); };
+        }
+      }
+
+      const timerEl = banner.querySelector('.cc-cd-timer');
+      if (timerEl && endsAt) timerEl.textContent = ccDropFormatTime(endsAt - now);
+    }
+
+    // ---------- Janela "Soltar Clustercoins" ----------
+    function ccCoinDropModalMsg(text, kind) {
+      const msg = document.getElementById('cc-cd-msg');
+      if (!msg) return;
+      msg.textContent = text || '';
+      msg.className = text ? (kind === 'ok' ? 'cc-cd-ok' : 'cc-cd-err') : '';
+    }
+
+    function ccCoinDropRefreshModal() {
+      const balanceEl = document.getElementById('cc-cd-balance');
+      const amountEl = document.getElementById('cc-cd-amount');
+      const chips = document.querySelectorAll('#cc-cd-chips .cc-cd-chip');
+      const coins = ccDropMyCoins();
+      const max = Math.min(CC_DROP_MAX, Math.floor(coins));
+      if (balanceEl) balanceEl.textContent = '◈ ' + (Math.round(coins * 10) / 10);
+      if (amountEl) amountEl.max = String(Math.max(1, max));
+      chips.forEach((chip) => { chip.disabled = Number(chip.dataset.v) > max; });
+    }
+
+    async function ccCoinDropOpenModal(targetNick) {
+      const modal = document.getElementById('cc-coindrop-modal');
+      if (!modal || !currentUser || !authenticatedUid) return;
+      ccDropState.modalTarget = targetNick;
+      document.getElementById('cc-cd-title').textContent = 'Soltar Clustercoins para ' + targetNick;
+      document.getElementById('cc-cd-amount').value = '';
+      ccCoinDropModalMsg('');
+      const sendBtn = document.getElementById('cc-cd-send');
+      sendBtn.disabled = false;
+      ccCoinDropRefreshModal();
+      modal.classList.remove('hidden');
+
+      // Já usou a transferência de hoje? Avisa antes de digitar.
+      try {
+        const now = await getClusterstoreNow();
+        const todaySnap = await getDoc(doc(db, 'coinDrops', authenticatedUid + '_' + ccDropDayKey(now)));
+        if (todaySnap.exists() && !modal.classList.contains('hidden')) {
+          sendBtn.disabled = true;
+          ccCoinDropModalMsg('Você já usou a sua transferência de hoje. Volte amanhã!', 'err');
+        }
+      } catch (e) { /* a checagem final acontece ao enviar */ }
+    }
+
+    function ccCoinDropCloseModal() {
+      const modal = document.getElementById('cc-coindrop-modal');
+      if (modal) modal.classList.add('hidden');
+      ccDropState.modalTarget = null;
+    }
+
+    async function ccCoinDropSubmitModal() {
+      if (ccDropState.modalBusy) return;
+      const target = ccDropState.modalTarget;
+      const amountEl = document.getElementById('cc-cd-amount');
+      const sendBtn = document.getElementById('cc-cd-send');
+      if (!target || !amountEl) return;
+
+      const raw = String(amountEl.value || '').trim();
+      const amount = Number(raw);
+      const coins = ccDropMyCoins();
+
+      if (!raw || !Number.isFinite(amount)) { ccCoinDropModalMsg('Digite a quantidade de Clustercoins.', 'err'); return; }
+      if (!Number.isInteger(amount) || amount < 1) { ccCoinDropModalMsg('Use apenas valores inteiros (sem vírgula), a partir de 1.', 'err'); return; }
+      if (amount > CC_DROP_MAX) { ccCoinDropModalMsg('O limite é de ' + CC_DROP_MAX + ' Clustercoins por transferência.', 'err'); return; }
+      if (amount > coins) { ccCoinDropModalMsg('Você não tem Clustercoins suficientes. Seu saldo é ◈ ' + (Math.round(coins * 10) / 10) + '.', 'err'); return; }
+      if (!confirm('Soltar ◈ ' + amount + ' Clustercoins para ' + target + '?\nVocê só pode fazer 1 transferência por dia. Se ninguém pegar em 5 minutos, o valor volta para você.')) return;
+
+      ccDropState.modalBusy = true;
+      sendBtn.disabled = true;
+      ccCoinDropModalMsg('');
+      const res = await ccCoinDropCreate(target, amount);
+      ccDropState.modalBusy = false;
+
+      if (res === 'ok') {
+        ccCoinDropCloseModal();
+        ccCoinDropWatchChat(target);
+        return;
+      }
+      sendBtn.disabled = res === 'already-today';
+      const texts = {
+        'invalid': 'Valor inválido. Use um número inteiro de 1 a ' + CC_DROP_MAX + '.',
+        'insufficient': 'Você não tem Clustercoins suficientes.',
+        'already-today': 'Você já usou a sua transferência de hoje. Volte amanhã!',
+        'no-uid': 'Essa pessoa ainda não pode receber Clustercoins (ela precisa entrar no Clustercord pelo menos uma vez).',
+        'denied': 'O Firebase recusou a transferência. As Firestore Rules da coleção coinDrops precisam ser publicadas.',
+        'error': 'Não foi possível soltar agora. Confira a conexão e tente de novo.'
+      };
+      ccCoinDropModalMsg(texts[res] || texts.error, 'err');
+    }
+
+    (function ccCoinDropInitUi() {
+      const modal = document.getElementById('cc-coindrop-modal');
+      if (!modal) return;
+      document.getElementById('cc-cd-close').addEventListener('click', ccCoinDropCloseModal);
+      modal.addEventListener('click', (e) => { if (e.target === modal) ccCoinDropCloseModal(); });
+      document.getElementById('cc-cd-send').addEventListener('click', ccCoinDropSubmitModal);
+      document.getElementById('cc-cd-amount').addEventListener('keydown', (e) => { if (e.key === 'Enter') ccCoinDropSubmitModal(); });
+      document.getElementById('cc-cd-chips').addEventListener('click', (e) => {
+        const chip = e.target.closest && e.target.closest('.cc-cd-chip');
+        if (!chip || chip.disabled) return;
+        document.getElementById('cc-cd-amount').value = chip.dataset.v;
+        ccCoinDropModalMsg('');
+      });
+      window.addEventListener('clustercord-profile-updated', () => {
+        if (!modal.classList.contains('hidden')) ccCoinDropRefreshModal();
+      });
+      setInterval(ccCoinDropRender, 1000); // contagem regressiva + sai da faixa se o chat deixar de ser direto
+    })();
+
     async function selectDirectChat(targetNick) {
       setVoiceViewActive(false); // a call continua conectada; só saímos da tela dela
       stopGroupVoicePresence();
@@ -3337,6 +3930,10 @@
         btnBlock.onclick = () => blockUser(targetNick);
         actionsArea.appendChild(btnBlock);
       }
+
+      // V5.6: botão "Soltar Clustercoins" (somente chats diretos) e faixa de Clustercoins soltas.
+      ccCoinDropAttachButton(actionsArea, targetNick);
+      ccCoinDropWatchChat(targetNick);
 
       renderSidebar();
       carregarMensagens();
