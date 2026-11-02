@@ -1886,6 +1886,10 @@
           <label>Permissão para apagar mensagens</label>
           <div id="message-delete-permission-list" style="display:flex; flex-direction:column; gap:0.45rem;"></div>
         </div>
+        <div class="input-group">
+          <label>Apelidos neste grupo (só valem aqui dentro)</label>
+          <div id="member-nickname-list"></div>
+        </div>
       </div>
       <div class="section-title">Lista de Membros</div>
       <div id="group-members-list" style="max-height: 150px; overflow-y: auto; margin-bottom: 1rem;"></div>
@@ -1934,6 +1938,45 @@
   </div>
 
   <!-- FIREBASE SDK -->
+  <style id="cc-mention-style">
+    /* V5.5.3 (ADITIVO): apelidos locais de grupo + menções */
+    .cc-nick-tag { color: var(--text-muted); font-size: 0.78em; font-weight: 500; margin-left: 0.2rem; }
+    #manage-group-modal .modal { max-height: 90vh; overflow-y: auto; }
+    #member-nickname-list { display: flex; flex-direction: column; gap: 0.45rem; max-height: 200px; overflow-y: auto; }
+    .cc-nick-row { display: flex; align-items: center; gap: 0.5rem; }
+    .cc-nick-real { flex: 0 0 32%; max-width: 32%; font-size: 0.78rem; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cc-nick-row .cc-nick-input { flex: 1; min-width: 0; width: auto; padding: 0.45rem 0.6rem; font-size: 0.82rem; }
+    .cc-nick-row .btn-small { flex-shrink: 0; }
+
+    .cc-mention { display: inline; padding: 0 0.28em; border-radius: 0.35em; background: rgba(0, 136, 255, 0.22); color: #7cc0ff; font-weight: 700; }
+    .message-wrapper.sent .cc-mention { background: rgba(255, 255, 255, 0.22); color: inherit; }
+    .cc-mention.cc-mention-me { background: rgba(255, 176, 32, 0.30); color: #ffc861; }
+    .cc-mention.cc-mention-special { background: rgba(194, 107, 255, 0.26); color: #d9a6ff; }
+    html[data-cc-theme="white"] .cc-mention { color: #0a5bb5; }
+    html[data-cc-theme="white"] .cc-mention.cc-mention-me { color: #8a5200; }
+    html[data-cc-theme="white"] .cc-mention.cc-mention-special { color: #6a2fa3; }
+
+    .message-wrapper.cc-mentioned { box-shadow: inset 3px 0 0 #ffb020; background: rgba(255, 176, 32, 0.09); border-radius: 8px; }
+    .cc-mention-flag { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.02em; color: #ffb020; margin: 0 0 0.2rem; }
+    html[data-cc-theme="white"] .cc-mention-flag { color: #b36b00; }
+
+    .cc-mention-badge { margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: #ffb020; color: #1b1200; display: inline-flex; align-items: center; justify-content: center; font-size: 0.72rem; font-weight: 800; line-height: 1; flex-shrink: 0; }
+    .cc-mention-badge + .unread-badge { margin-left: 0.3rem; }
+    #app-screen .contact-item .cc-mention-badge { min-width: 22px; height: 22px; border-radius: 11px; font-size: 0.78rem; }
+
+    #cc-mention-picker { position: fixed; z-index: 5000; display: flex; flex-direction: column; max-height: min(260px, 45vh); overflow-y: auto; overscroll-behavior: contain; background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); padding: 4px; -webkit-user-select: none; user-select: none; }
+    #cc-mention-picker[hidden] { display: none; }
+    .cc-mp-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem 0.55rem; border-radius: 8px; cursor: pointer; }
+    .cc-mp-item.active { background: rgba(0, 136, 255, 0.16); }
+    .cc-mp-avatar { position: relative; flex: 0 0 30px; width: 30px; height: 30px; border-radius: 50%; background: var(--bg-input) center / cover no-repeat; color: var(--text-main); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; }
+    .cc-mp-avatar.special { background: linear-gradient(135deg, #0088ff, #c26bff); color: #fff; }
+    .cc-mp-dot { position: absolute; right: -2px; bottom: -2px; width: 11px; height: 11px; border-radius: 50%; background: #6b7280; border: 2px solid var(--bg-panel); box-sizing: border-box; }
+    .cc-mp-dot.on { background: #3ddc84; }
+    .cc-mp-info { min-width: 0; flex: 1; }
+    .cc-mp-name { font-size: 0.9rem; font-weight: 600; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cc-mp-sub { font-size: 0.74rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  </style>
+
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updatePassword } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
@@ -2698,9 +2741,10 @@
         const at = stamp?.toMillis ? stamp.toMillis() : (stamp?.seconds ? stamp.seconds * 1000 : 0);
         return at > 0 && now - at < 25000;
       });
-      const shortenNick = nick => Array.from(String(nick)).length > 12
-        ? `${Array.from(String(nick)).slice(0, 10).join('')}...`
-        : String(nick);
+      const shortenNick = nick => {
+        const shown = String(ccDisplayName(nick));
+        return Array.from(shown).length > 12 ? `${Array.from(shown).slice(0, 10).join('')}...` : shown;
+      };
 
       let label = '';
       if (typingNicks.length === 1) {
@@ -3184,9 +3228,9 @@
     async function marcarComoLido(key) {
       if (!key || !getUnreadCount(key)) return;
       try {
-        await updateDoc(doc(db, "users", currentUser), {
-          [`unreadCounts.${key}`]: 0
-        });
+        const clearPayload = { [`unreadCounts.${key}`]: 0 };
+        if (getUnreadCount('mention_' + key)) clearPayload[`unreadCounts.mention_${key}`] = 0;
+        await updateDoc(doc(db, "users", currentUser), clearPayload);
       } catch (e) {
         console.error("Erro ao marcar mensagens como lidas:", e);
       }
@@ -3217,7 +3261,7 @@
             <div class="user-name">${escapeHtml(nick)}</div>
             <div class="user-bio">${escapeHtml(data.bio || '')}</div>
           </div>
-          ${createUnreadBadge(unread)}
+          ${createMentionBadge(getUnreadCount('mention_' + directUnreadKey(nick)))}${createUnreadBadge(unread)}
         `;
         const contactAvatar = item.querySelector('.avatar');
         contactAvatar.dataset.clustercordAvatarNick = nick;
@@ -3233,6 +3277,7 @@
         [...snapshot.docs].sort((a, b) => String(a.data().name || '').localeCompare(String(b.data().name || ''), 'pt-BR', { sensitivity: 'base' })).forEach((docSnap) => {
           const group = docSnap.data();
           const gId = docSnap.id;
+          if (activeChat?.type === 'group' && activeChat.id === gId) ccSyncActiveGroup(group);
 
           let groupItem = document.getElementById(`group-item-${gId}`);
           if (!groupItem) {
@@ -3250,7 +3295,7 @@
               <div class="user-name">${escapeHtml(group.name)}</div>
               <div class="user-bio">${Number(group.members?.length || 0)} membros</div>
             </div>
-            ${createUnreadBadge(unread)}
+            ${createMentionBadge(getGroupMentionCount(gId, group.channels || ['geral']))}${createUnreadBadge(unread)}
           `;
           groupBox.appendChild(groupItem);
         });
@@ -3502,7 +3547,7 @@
         tab.className = `channel-tab ${activeChannel === ch && !viewingCall ? 'active' : ''}`;
 
         const count = getUnreadCount(channelUnreadKey(activeChat.id, ch));
-        tab.innerHTML = `<span># ${escapeHtml(ch)}</span>${createUnreadBadge(count)}`;
+        tab.innerHTML = `<span># ${escapeHtml(ch)}</span>${createMentionBadge(getUnreadCount('mention_' + channelUnreadKey(activeChat.id, ch)))}${createUnreadBadge(count)}`;
 
         tab.onclick = async () => {
           setVoiceViewActive(false); // não desconecta da call: só mostra o chat de texto
@@ -3527,7 +3572,7 @@
           ? `<div class="voice-channel-participants">${participants.map(entry => `
               <div class="voice-channel-participant" title="${escapeHtml(entry.user)}">
                 <span class="voice-channel-participant-dot"></span>
-                <span class="voice-channel-participant-name">${escapeHtml(entry.user)}</span>
+                <span class="voice-channel-participant-name">${escapeHtml(ccDisplayName(entry.user))}</span>
                 ${entry.muted ? '<span class="voice-channel-participant-muted">🔇</span>' : ''}
               </div>`).join('')}</div>`
           : '';
@@ -3568,7 +3613,7 @@
       try { return localStorage.getItem('clustercord_notif_sounds') !== 'off'; } catch (e) { return true; }
     }
 
-    function playMessageNotificationSound() {
+    function playMessageNotificationSound(isMention) {
       if (!messageNotifSoundsEnabled()) return;
       try {
         unlockVoiceAudio();
@@ -3593,7 +3638,7 @@
         notifSoundPending = false;
 
         // "plim-plim" curto e agradável (diferente dos sons da call)
-        const notes = [[880.00, 0], [1318.51, 0.12]];
+        const notes = isMention ? [[880.00, 0], [1174.66, 0.11], [1567.98, 0.22]] : [[880.00, 0], [1318.51, 0.12]];
         const start = ctx.currentTime + 0.01;
         notes.forEach(([freq, offset]) => {
           const osc = ctx.createOscillator();
@@ -3642,6 +3687,7 @@
 
     // A pessoa está olhando exatamente para essa conversa agora?
     function isViewingUnreadKey(key) {
+      key = String(key).replace(/^mention_/, '');
       if (document.visibilityState !== 'visible') return false;
       if (!activeChat) return false;
       if (activeChat.type === 'direct') return key === directUnreadKey(activeChat.id);
@@ -3657,17 +3703,21 @@
       }
 
       let shouldPlay = false;
+      let mentionHit = false;
       Object.keys(current).forEach(key => {
         const now = Number(current[key] || 0);
         const before = Number(notifPrevUnread[key] || 0);
-        if (now > before && !isViewingUnreadKey(key)) shouldPlay = true;
+        if (now > before && !isViewingUnreadKey(key)) {
+          shouldPlay = true;
+          if (String(key).indexOf('mention_') === 0) mentionHit = true;
+        }
       });
       notifPrevUnread = { ...current };
 
       // No máximo um som por leitura (e nunca em rajada)
       if (shouldPlay && (Date.now() - notifLastSoundAt) > 400) {
         notifLastSoundAt = Date.now();
-        playMessageNotificationSound();
+        playMessageNotificationSound(mentionHit);
       }
     }
 
@@ -5049,8 +5099,11 @@
         msgData.channelId = activeChannel;
       }
 
+      const ccMention = await ccResolveMentions(text);
+      if (ccMention.stored.length) msgData.mentions = ccMention.stored;
+
       try {
-        await addDoc(collection(db, "messages"), msgData);
+        await ccAddMessageDoc(msgData);
         messagePersisted = true;
         const sendSuccessAt = Date.now();
         recentMessageSendAt.set(sendKey, sendSuccessAt);
@@ -5072,9 +5125,10 @@
         if (recSnap.exists()) {
           const recData = recSnap.data();
           if (!recData.blockedUsers || !recData.blockedUsers.includes(currentUser)) {
-            await incrementarNaoLidas(
+            await ccBumpUnread(
               activeChat.id,
-              directUnreadKey(currentUser)
+              directUnreadKey(currentUser),
+              ccMention.targets.has(activeChat.id)
             );
           }
         }
@@ -5085,7 +5139,7 @@
         await Promise.all(
           members
             .filter(member => member !== currentUser)
-            .map(member => incrementarNaoLidas(member, unreadKey))
+            .map(member => ccBumpUnread(member, unreadKey, ccMention.targets.has(member)))
         );
       }
         return true;
@@ -5537,7 +5591,9 @@
           if (activeChat.type === 'group' || !isMe) {
             const author = document.createElement('div');
             author.className = 'msg-author';
-            author.innerText = msg.sender;
+            author.appendChild(document.createTextNode(ccDisplayName(msg.sender)));
+            author.dataset.ccNick = msg.sender;
+            if (ccDisplayName(msg.sender) !== msg.sender) author.title = msg.sender;
             contentDiv.appendChild(author);
           }
 
@@ -5548,6 +5604,8 @@
           const messageVideo = !messageImage ? getClusterVideo(storedMessageText) : null;
           const messageIsGif = !messageImage && !messageVideo && isAllowedGifUrl(storedMessageText);
           bubble.dataset.messageText = messageImage ? '[Imagem]' : (messageVideo ? '[Vídeo]' : (messageIsGif ? '[GIF]' : storedMessageText));
+          bubble.dataset.ccSender = msg.sender;
+          if (Array.isArray(msg.mentions)) bubble.dataset.ccMentions = msg.mentions.join('\u0001');
 
           if (messageImage) {
             const photo = document.createElement('img');
@@ -5889,7 +5947,7 @@
         item.style.padding = '0.4rem 0';
 
         const left = document.createElement('span');
-        left.innerHTML = `${escapeHtml(m)} ${getGroupRoleLabel(m, activeChat.data)}`;
+        left.innerHTML = `${escapeHtml(m)}${ccNicknameTagHtml(m)} ${getGroupRoleLabel(m, activeChat.data)}`;
         item.appendChild(left);
 
         if (canManage && m !== currentUser && m !== activeChat.data.owner && !isClustercordCreator(m)) {
@@ -5954,7 +6012,575 @@
           permissionList.appendChild(permissionRow);
         }
       });
+      ccRenderNicknameEditor();
     }
+
+    /* ===== V5.5.3 (ADITIVO): apelidos locais de grupo + menções (@, @all, @on) ===== */
+    const CC_NICK_MAX = 24;
+    const CC_REPLY_START = '↩ Respondendo a: ';
+    const CC_ANSWER_START = 'Sua resposta:';
+    let ccNickFlashMember = null;
+
+    /* ---------- Apelidos locais (salvos no documento do grupo: groups/{id}.nicknames) ---------- */
+    // A chave leva um prefixo para nunca colidir com nomes reservados do Firestore (ex.: __nick__).
+    function ccNickKey(nick) { return 'u_' + String(nick); }
+
+    function ccGroupNicknames(group) {
+      const g = group || activeChat?.data;
+      const map = g && g.nicknames;
+      return (map && typeof map === 'object') ? map : {};
+    }
+
+    function ccGroupNickname(nick, group) {
+      const value = ccGroupNicknames(group)[ccNickKey(nick)];
+      return typeof value === 'string' ? value.trim() : '';
+    }
+
+    // Nome exibido SOMENTE dentro do grupo ativo. Fora dele (Directs, perfil, etc.) vale sempre o nick real.
+    function ccDisplayName(nick, group) {
+      const g = group || ((activeChat && activeChat.type === 'group') ? activeChat.data : null);
+      const real = String(nick == null ? '' : nick);
+      if (!g) return real;
+      return ccGroupNickname(real, g) || real;
+    }
+
+    function ccNicknameTagHtml(nick) {
+      const own = ccGroupNickname(nick);
+      return own ? ` <span class="cc-nick-tag" title="Apelido neste grupo">“${escapeHtml(own)}”</span>` : '';
+    }
+
+    function ccStableJson(value) {
+      try {
+        return JSON.stringify(value, (key, v) => (v && typeof v === 'object' && !Array.isArray(v))
+          ? Object.keys(v).sort().reduce((o, k) => { o[k] = v[k]; return o; }, {})
+          : v);
+      } catch (e) { return ''; }
+    }
+
+    async function ccSaveGroupNickname(member, value) {
+      if (!activeChat || activeChat.type !== 'group' || !canManageGroup(activeChat.data)) return false;
+      const clean = Array.from(String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim())
+        .slice(0, CC_NICK_MAX).join('');
+      const next = { ...ccGroupNicknames() };
+      if (clean) next[ccNickKey(member)] = clean; else delete next[ccNickKey(member)];
+      try {
+        await updateDoc(doc(db, "groups", activeChat.id), { nicknames: next });
+      } catch (e) {
+        console.error('Erro ao salvar apelido:', e);
+        alert(e?.code === 'permission-denied'
+          ? 'O Firebase recusou salvar o apelido. Libere o campo "nicknames" do grupo nas Firestore Security Rules para o dono do grupo.'
+          : `Não foi possível salvar o apelido: ${e?.code || e?.message || 'erro desconhecido'}`);
+        return false;
+      }
+      activeChat.data.nicknames = next;
+      ccNickFlashMember = member;
+      ccRefreshNicknameViews();
+      setTimeout(() => {
+        if (ccNickFlashMember !== member) return;
+        ccNickFlashMember = null;
+        const modal = document.getElementById('manage-group-modal');
+        if (modal && !modal.classList.contains('hidden')) ccRenderNicknameEditor();
+      }, 1400);
+      return true;
+    }
+
+    function ccRenderNicknameEditor() {
+      const box = document.getElementById('member-nickname-list');
+      if (!box) return;
+      const kept = new Map();
+      box.querySelectorAll('.cc-nick-input').forEach(input => {
+        if (input.dataset.dirty === '1') kept.set(input.dataset.member, input.value);
+      });
+      box.innerHTML = '';
+      if (!activeChat || activeChat.type !== 'group' || !canManageGroup(activeChat.data)) return;
+
+      (activeChat.data.members || []).forEach(member => {
+        const row = document.createElement('div');
+        row.className = 'cc-nick-row';
+
+        const real = document.createElement('span');
+        real.className = 'cc-nick-real';
+        real.textContent = member;
+        real.title = member;
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'cc-nick-input';
+        input.maxLength = CC_NICK_MAX;
+        input.placeholder = 'Sem apelido';
+        input.dataset.member = member;
+        if (kept.has(member) && member !== ccNickFlashMember) {
+          input.value = kept.get(member);
+          input.dataset.dirty = '1';
+        } else {
+          input.value = ccGroupNickname(member);
+        }
+        input.addEventListener('input', () => { input.dataset.dirty = '1'; });
+
+        const save = document.createElement('button');
+        save.type = 'button';
+        save.className = 'btn-small';
+        save.textContent = ccNickFlashMember === member ? '✓ Salvo' : 'Salvar';
+
+        const commit = async () => {
+          save.disabled = true;
+          input.dataset.dirty = '';
+          const ok = await ccSaveGroupNickname(member, input.value);
+          if (!ok) { input.dataset.dirty = '1'; save.disabled = false; }
+        };
+        save.onclick = commit;
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } });
+
+        row.appendChild(real);
+        row.appendChild(input);
+        row.appendChild(save);
+        box.appendChild(row);
+      });
+    }
+
+    // Atualiza tudo que mostra nomes de membros do grupo ativo (sem recarregar as mensagens).
+    function ccRefreshNicknameViews() {
+      try {
+        chatMessagesEl.querySelectorAll('.msg-author[data-cc-nick]').forEach(el => {
+          const realNick = el.dataset.ccNick;
+          const shown = ccDisplayName(realNick);
+          const first = el.firstChild;
+          if (first && first.nodeType === Node.TEXT_NODE) {
+            if (first.nodeValue !== shown) first.nodeValue = shown;
+          } else {
+            el.insertBefore(document.createTextNode(shown), el.firstChild);
+          }
+          if (shown !== realNick) el.title = realNick; else el.removeAttribute('title');
+        });
+        chatMessagesEl.querySelectorAll('.cc-mention[data-cc-mention-nick]').forEach(el => {
+          el.textContent = '@' + ccDisplayName(el.dataset.ccMentionNick);
+        });
+        renderTypingIndicator();
+        if (activeChat?.type === 'group') renderChannels();
+        const modal = document.getElementById('manage-group-modal');
+        if (modal && !modal.classList.contains('hidden')) renderMembersList();
+      } catch (e) {
+        console.error('Erro ao atualizar apelidos na tela:', e);
+      }
+    }
+
+    // Chamado a cada atualização dos grupos: mantém apelidos e membros do chat aberto em tempo real.
+    function ccSyncActiveGroup(group) {
+      if (!activeChat || activeChat.type !== 'group' || !activeChat.data || !group) return;
+      let changed = false;
+      const nextNicks = (group.nicknames && typeof group.nicknames === 'object') ? group.nicknames : {};
+      if (ccStableJson(ccGroupNicknames()) !== ccStableJson(nextNicks)) {
+        activeChat.data.nicknames = nextNicks;
+        changed = true;
+      }
+      if (Array.isArray(group.members) && ccStableJson(activeChat.data.members || []) !== ccStableJson(group.members)) {
+        activeChat.data.members = group.members;
+        changed = true;
+      }
+      if (changed) ccRefreshNicknameViews();
+    }
+
+    /* ---------- Menções ---------- */
+    function ccMentionMembers() {
+      if (!activeChat) return [];
+      if (activeChat.type === 'direct') return [currentUser, activeChat.id].filter(Boolean);
+      return Array.isArray(activeChat.data?.members) ? activeChat.data.members : [];
+    }
+
+    function ccMentionMemberMap() {
+      return new Map(ccMentionMembers().map(m => [String(m).toLowerCase(), String(m)]));
+    }
+
+    // Resolve "@abc." tirando pontuação final quando preciso. all/on só existem em grupos.
+    function ccResolveMentionToken(raw, memberMap, allowSpecial) {
+      let t = String(raw || '');
+      while (t.length) {
+        const low = t.toLowerCase();
+        if (allowSpecial && (low === 'all' || low === 'on')) return { kind: low, text: t };
+        if (memberMap.has(low)) return { kind: 'user', nick: memberMap.get(low), text: t };
+        if (/[._-]$/.test(t)) t = t.slice(0, -1); else break;
+      }
+      return null;
+    }
+
+    function ccScanMentions(text, memberMap, allowSpecial) {
+      const found = [];
+      const re = /(^|[^A-Za-z0-9_.@-])@([A-Za-z0-9_.-]{1,32})/g;
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const hit = ccResolveMentionToken(m[2], memberMap, allowSpecial);
+        if (!hit) continue;
+        const start = m.index + m[1].length;
+        found.push({ start, end: start + 1 + hit.text.length, kind: hit.kind, nick: hit.nick || '', text: hit.text });
+      }
+      return found;
+    }
+
+    // Em respostas, só vale o que a pessoa escreveu depois de "Sua resposta:" (a citação não menciona ninguém).
+    function ccStripReplyQuote(text) {
+      const s = String(text || '');
+      if (s.indexOf(CC_REPLY_START) !== 0) return s;
+      const i = s.indexOf(CC_ANSWER_START);
+      return i >= 0 ? s.slice(i + CC_ANSWER_START.length) : s;
+    }
+
+    // Quem será avisado por esta mensagem + a lista que vai junto com ela (campo "mentions").
+    async function ccResolveMentions(text) {
+      const out = { stored: [], targets: new Set() };
+      try {
+        if (!activeChat || !text || String(text).indexOf('@') < 0) return out;
+        if (getClusterImage(text) || getClusterVideo(text) || isAllowedGifUrl(text)) return out;
+        const isGroup = activeChat.type === 'group';
+        const members = ccMentionMembers();
+        const memberMap = ccMentionMemberMap();
+        const found = ccScanMentions(ccStripReplyQuote(text), memberMap, isGroup);
+        if (!found.length) return out;
+
+        let wantAll = false, wantOn = false;
+        found.forEach(f => {
+          if (f.kind === 'all') wantAll = true;
+          else if (f.kind === 'on') wantOn = true;
+          else if (f.nick && f.nick !== currentUser) out.targets.add(f.nick);
+        });
+
+        if (wantAll) members.forEach(n => { if (n && n !== currentUser) out.targets.add(n); });
+
+        if (wantOn) {
+          const others = members.filter(n => n && n !== currentUser);
+          await Promise.all(others.map(async n => {
+            try { await getUserData(n); } catch (e) {}
+            if (window.__clustercordPresenceOf?.(n) === 'online') out.targets.add(n);
+          }));
+        }
+
+        out.stored = wantAll ? ['@all'] : [...out.targets];
+      } catch (e) {
+        console.error('Erro ao resolver menções:', e);
+      }
+      return out;
+    }
+
+    // Grava a mensagem; se as Rules ainda não aceitarem o campo "mentions", reenvia sem ele (a menção continua avisando).
+    async function ccAddMessageDoc(msgData) {
+      try {
+        return await addDoc(collection(db, "messages"), msgData);
+      } catch (err) {
+        if (msgData.mentions && err && err.code === 'permission-denied') {
+          const clone = { ...msgData };
+          delete clone.mentions;
+          try {
+            const ref = await addDoc(collection(db, "messages"), clone);
+            delete msgData.mentions;
+            return ref;
+          } catch (err2) { throw err; }
+        }
+        throw err;
+      }
+    }
+
+    // Soma +1 não lida; se a pessoa foi mencionada, soma também o contador de menção (mesmo documento, uma escrita só).
+    async function ccBumpUnread(nick, key, mentioned) {
+      if (!mentioned) return incrementarNaoLidas(nick, key);
+      try {
+        await updateDoc(doc(db, "users", nick), {
+          [`unreadCounts.${key}`]: increment(1),
+          [`unreadCounts.mention_${key}`]: increment(1)
+        });
+      } catch (e) {
+        console.error(`Erro ao registrar menção para ${nick}:`, e);
+        return incrementarNaoLidas(nick, key);
+      }
+    }
+
+    function createMentionBadge(count) {
+      if (!count) return '';
+      return `<span class="cc-mention-badge" title="Você foi mencionado">@${count > 1 ? (count > 99 ? '99+' : count) : ''}</span>`;
+    }
+
+    function getGroupMentionCount(groupId, channels) {
+      return (channels || ['geral']).reduce((total, channel) => {
+        return total + getUnreadCount('mention_' + channelUnreadKey(groupId, channel));
+      }, 0);
+    }
+
+    /* ---------- Menções dentro das mensagens (destaque + "importante") ---------- */
+    function ccBuildMentionFragment(text, memberMap, isGroup, meNick) {
+      const found = ccScanMentions(text, memberMap, isGroup);
+      if (!found.length) return null;
+      const frag = document.createDocumentFragment();
+      let last = 0;
+      let hitsMe = false;
+      found.forEach(f => {
+        if (f.start > last) frag.appendChild(document.createTextNode(text.slice(last, f.start)));
+        const chip = document.createElement('span');
+        chip.className = 'cc-mention';
+        if (f.kind === 'all' || f.kind === 'on') {
+          chip.classList.add('cc-mention-special');
+          chip.textContent = '@' + f.kind;
+          chip.title = f.kind === 'all' ? 'Menciona todos do grupo' : 'Menciona todos que estavam online';
+          if (f.kind === 'all') hitsMe = true;
+        } else {
+          chip.dataset.ccMentionNick = f.nick;
+          chip.textContent = '@' + ccDisplayName(f.nick);
+          chip.title = f.nick;
+          if (f.nick === meNick) { chip.classList.add('cc-mention-me'); hitsMe = true; }
+        }
+        frag.appendChild(chip);
+        last = f.end;
+      });
+      if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+      return { frag, hitsMe };
+    }
+
+    function ccMarkMentioned(bubble) {
+      const wrapper = bubble.closest('.message-wrapper');
+      if (!wrapper || wrapper.classList.contains('cc-mentioned') || !bubble.parentNode) return;
+      wrapper.classList.add('cc-mentioned');
+      const flag = document.createElement('div');
+      flag.className = 'cc-mention-flag';
+      flag.textContent = '@ Você foi mencionado';
+      bubble.parentNode.insertBefore(flag, bubble);
+    }
+
+    let ccMentionTimer = null;
+    function ccScheduleMentionPass(delay) {
+      clearTimeout(ccMentionTimer);
+      ccMentionTimer = setTimeout(ccDecorateMentions, delay == null ? 200 : delay);
+    }
+
+    function ccDecorateMentions() {
+      if (!chatMessagesEl || !activeChat) return;
+      const memberMap = ccMentionMemberMap();
+      const isGroup = activeChat.type === 'group';
+      let retry = false;
+
+      chatMessagesEl.querySelectorAll('.message-bubble').forEach(bubble => {
+        if (bubble.dataset.ccMentionDone === '1') return;
+        const raw = bubble.dataset.messageText || '';
+        const hasList = bubble.dataset.ccMentions !== undefined;
+        if (raw.indexOf('@') < 0 && !hasList) { bubble.dataset.ccMentionDone = '1'; return; }
+
+        let scope = bubble;
+        if (raw.indexOf(CC_REPLY_START) === 0) {
+          if (bubble.dataset.replyDecorated === '1') {
+            scope = bubble.querySelector('.reply-answer-text') || bubble;
+          } else {
+            // Espera o sistema de respostas montar a citação antes de mexer no texto.
+            const born = Number(bubble.dataset.ccMentionSeen || 0) || Date.now();
+            bubble.dataset.ccMentionSeen = String(born);
+            if (Date.now() - born < 2500) { retry = true; return; }
+          }
+        }
+
+        let hitsMe = false;
+        Array.from(scope.childNodes).forEach(node => {
+          if (node.nodeType !== Node.TEXT_NODE) return;
+          const built = ccBuildMentionFragment(node.nodeValue || '', memberMap, isGroup, currentUser);
+          if (!built) return;
+          if (built.hitsMe) hitsMe = true;
+          node.replaceWith(built.frag);
+        });
+        bubble.dataset.ccMentionDone = '1';
+
+        if ((bubble.dataset.ccSender || '') === currentUser) return;
+        let mentioned;
+        if (hasList) {
+          const list = (bubble.dataset.ccMentions || '').split('\u0001');
+          mentioned = list.includes(currentUser) || list.includes('@all');
+        } else {
+          mentioned = hitsMe;
+        }
+        if (mentioned) ccMarkMentioned(bubble);
+      });
+
+      if (retry) ccScheduleMentionPass(250);
+    }
+
+    if (chatMessagesEl) {
+      new MutationObserver(() => ccScheduleMentionPass(200)).observe(chatMessagesEl, { childList: true, subtree: true });
+    }
+
+    /* ---------- Lista de menção ao digitar "@" ---------- */
+    const ccMentionPicker = { el: null, open: false, items: [], index: 0 };
+
+    function ccEnsurePickerEl() {
+      if (ccMentionPicker.el) return ccMentionPicker.el;
+      const el = document.createElement('div');
+      el.id = 'cc-mention-picker';
+      el.setAttribute('role', 'listbox');
+      el.hidden = true;
+      document.body.appendChild(el);
+      ccMentionPicker.el = el;
+      return el;
+    }
+
+    function ccCloseMentionPicker() {
+      ccMentionPicker.open = false;
+      ccMentionPicker.items = [];
+      if (ccMentionPicker.el) ccMentionPicker.el.hidden = true;
+    }
+
+    function ccMentionCandidates(query) {
+      const q = String(query || '').toLowerCase();
+      const isGroup = activeChat.type === 'group';
+      const members = ccMentionMembers().filter(n => n && n !== currentUser);
+      const items = [];
+
+      if (isGroup && members.length) {
+        if (!q || 'all'.startsWith(q)) {
+          items.push({ kind: 'all', token: 'all', title: '@all', sub: `Mencionar todos do grupo (${members.length})` });
+        }
+        if (!q || 'on'.startsWith(q)) {
+          const onlineCount = members.filter(n => window.__clustercordPresenceOf?.(n) === 'online').length;
+          items.push({ kind: 'on', token: 'on', title: '@on', sub: `Mencionar quem está online agora (${onlineCount})` });
+        }
+      }
+
+      const rank = (u) => (u.nick.toLowerCase().startsWith(q) || u.display.toLowerCase().startsWith(q)) ? 0 : 1;
+      members
+        .map(nick => ({ nick, display: ccDisplayName(nick), own: ccGroupNickname(nick) }))
+        .filter(u => !q || u.nick.toLowerCase().includes(q) || u.display.toLowerCase().includes(q))
+        .sort((a, b) => (rank(a) - rank(b)) || a.display.localeCompare(b.display, 'pt-BR', { sensitivity: 'base' }))
+        .forEach(u => items.push({ kind: 'user', token: u.nick, nick: u.nick, display: u.display, own: u.own }));
+
+      return items;
+    }
+
+    function ccRefreshPickerActive() {
+      const el = ccMentionPicker.el;
+      if (!el) return;
+      Array.from(el.children).forEach((row, idx) => {
+        const active = idx === ccMentionPicker.index;
+        row.classList.toggle('active', active);
+        if (active) row.scrollIntoView({ block: 'nearest' });
+      });
+    }
+
+    function ccRenderMentionPicker() {
+      const el = ccEnsurePickerEl();
+      el.innerHTML = '';
+      ccMentionPicker.items.forEach((item, idx) => {
+        const row = document.createElement('div');
+        row.className = 'cc-mp-item' + (idx === ccMentionPicker.index ? ' active' : '');
+        row.setAttribute('role', 'option');
+
+        const avatar = document.createElement('div');
+        avatar.className = 'cc-mp-avatar' + (item.kind === 'user' ? '' : ' special');
+        const info = document.createElement('div');
+        info.className = 'cc-mp-info';
+        const name = document.createElement('div');
+        name.className = 'cc-mp-name';
+        const sub = document.createElement('div');
+        sub.className = 'cc-mp-sub';
+
+        if (item.kind === 'user') {
+          const data = usersCache[item.nick] || {};
+          if (data.photo) avatar.style.backgroundImage = `url("${String(data.photo).replace(/["\\\r\n]/g, '')}")`;
+          else avatar.textContent = Array.from(item.display)[0]?.toUpperCase() || '?';
+          const online = window.__clustercordPresenceOf?.(item.nick) === 'online';
+          const dot = document.createElement('span');
+          dot.className = 'cc-mp-dot' + (online ? ' on' : '');
+          avatar.appendChild(dot);
+          name.textContent = item.display;
+          sub.textContent = (item.own ? `@${item.nick} • ` : '') + (online ? 'Online' : 'Offline');
+        } else {
+          avatar.textContent = '@';
+          name.textContent = item.title;
+          sub.textContent = item.sub;
+        }
+
+        info.appendChild(name);
+        info.appendChild(sub);
+        row.appendChild(avatar);
+        row.appendChild(info);
+        // mousedown + preventDefault: escolhe sem tirar o foco do campo (o teclado do celular não fecha).
+        row.addEventListener('mousedown', (e) => { e.preventDefault(); ccPickMention(idx); });
+        row.addEventListener('mouseenter', () => { ccMentionPicker.index = idx; ccRefreshPickerActive(); });
+        el.appendChild(row);
+      });
+    }
+
+    function ccPositionMentionPicker() {
+      const el = ccMentionPicker.el;
+      if (!el || el.hidden) return;
+      const rect = messageInput.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const width = Math.min(Math.max(rect.width, 260), vw - 16);
+      el.style.width = width + 'px';
+      el.style.left = Math.max(8, Math.min(rect.left, vw - width - 8)) + 'px';
+      el.style.top = Math.max(8, rect.top - el.offsetHeight - 8) + 'px';
+    }
+
+    function ccUpdateMentionPicker() {
+      if (!activeChat || document.activeElement !== messageInput) return ccCloseMentionPicker();
+      const caret = messageInput.selectionStart;
+      if (caret == null || caret !== messageInput.selectionEnd) return ccCloseMentionPicker();
+      const m = /(^|[\s(])@([A-Za-z0-9_.-]{0,32})$/.exec(messageInput.value.slice(0, caret));
+      if (!m) return ccCloseMentionPicker();
+
+      // Garante que o perfil (foto/presença) dos membros já foi carregado para a lista.
+      ccMentionMembers().forEach(n => { if (n && !usersCache[n]) getUserData(n).catch(() => {}); });
+
+      const items = ccMentionCandidates(m[2]);
+      if (!items.length) return ccCloseMentionPicker();
+      ccMentionPicker.items = items;
+      ccMentionPicker.index = 0;
+      ccMentionPicker.open = true;
+      ccEnsurePickerEl().hidden = false;
+      ccRenderMentionPicker();
+      ccPositionMentionPicker();
+    }
+
+    function ccPickMention(index) {
+      const item = ccMentionPicker.items[index];
+      if (!item) return ccCloseMentionPicker();
+      const caret = messageInput.selectionStart ?? messageInput.value.length;
+      const before = messageInput.value.slice(0, caret);
+      const after = messageInput.value.slice(caret);
+      const m = /(^|[\s(])@([A-Za-z0-9_.-]{0,32})$/.exec(before);
+      if (!m) return ccCloseMentionPicker();
+
+      const atPos = before.length - m[2].length - 1;
+      const spaceAlready = after.startsWith(' ');
+      const insert = '@' + item.token + (spaceAlready ? '' : ' ');
+      messageInput.value = before.slice(0, atPos) + insert + after;
+      const pos = atPos + insert.length + (spaceAlready ? 1 : 0);
+      ccCloseMentionPicker();
+      messageInput.focus();
+      try { messageInput.setSelectionRange(pos, pos); } catch (e) {}
+      messageInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    messageInput.addEventListener('input', ccUpdateMentionPicker);
+    messageInput.addEventListener('click', ccUpdateMentionPicker);
+    messageInput.addEventListener('keyup', (e) => {
+      if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) ccUpdateMentionPicker();
+    });
+    messageInput.addEventListener('blur', () => setTimeout(ccCloseMentionPicker, 150));
+    messageInput.addEventListener('keydown', (e) => {
+      if (!ccMentionPicker.open || e.isComposing) return;
+      const total = ccMentionPicker.items.length;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        ccMentionPicker.index = (ccMentionPicker.index + 1) % total;
+        ccRefreshPickerActive();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        ccMentionPicker.index = (ccMentionPicker.index - 1 + total) % total;
+        ccRefreshPickerActive();
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        // Enter escolhe a pessoa (não envia a mensagem enquanto a lista estiver aberta).
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        ccPickMention(ccMentionPicker.index);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        ccCloseMentionPicker();
+      }
+    }, true);
+    btnSend.addEventListener('click', ccCloseMentionPicker);
+    window.addEventListener('resize', ccPositionMentionPicker);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', ccPositionMentionPicker);
 
     document.getElementById('btn-rename-group').onclick = async () => {
       const newName = document.getElementById('new-group-name').value.trim();
@@ -11523,7 +12149,7 @@
   const decorateMessages = () => {
     if (!chatMessages) return;
     chatMessages.querySelectorAll('.msg-author').forEach((el) => {
-      upsertBadge(el, el.textContent.trim(), 'sm', false);
+      upsertBadge(el, (el.dataset && el.dataset.ccNick) || el.textContent.trim(), 'sm', false);
     });
   };
 
