@@ -5947,7 +5947,8 @@
         item.style.padding = '0.4rem 0';
 
         const left = document.createElement('span');
-        left.innerHTML = `${escapeHtml(m)}${ccNicknameTagHtml(m)} ${getGroupRoleLabel(m, activeChat.data)}`;
+        left.innerHTML = `${escapeHtml(ccDisplayName(m, activeChat.data))} ${getGroupRoleLabel(m, activeChat.data)}`;
+        if (ccGroupNickname(m, activeChat.data)) left.title = m;
         item.appendChild(left);
 
         if (canManage && m !== currentUser && m !== activeChat.data.owner && !isClustercordCreator(m)) {
@@ -6436,10 +6437,10 @@
         }
       }
 
-      const rank = (u) => (u.nick.toLowerCase().startsWith(q) || u.display.toLowerCase().startsWith(q)) ? 0 : 1;
+      const rank = (u) => u.display.toLowerCase().startsWith(q) ? 0 : 1;
       members
         .map(nick => ({ nick, display: ccDisplayName(nick), own: ccGroupNickname(nick) }))
-        .filter(u => !q || u.nick.toLowerCase().includes(q) || u.display.toLowerCase().includes(q))
+        .filter(u => !q || u.display.toLowerCase().includes(q))
         .sort((a, b) => (rank(a) - rank(b)) || a.display.localeCompare(b.display, 'pt-BR', { sensitivity: 'base' }))
         .forEach(u => items.push({ kind: 'user', token: u.nick, nick: u.nick, display: u.display, own: u.own }));
 
@@ -6482,7 +6483,7 @@
           dot.className = 'cc-mp-dot' + (online ? ' on' : '');
           avatar.appendChild(dot);
           name.textContent = item.display;
-          sub.textContent = (item.own ? `@${item.nick} • ` : '') + (online ? 'Online' : 'Offline');
+          sub.textContent = online ? 'Online' : 'Offline';
         } else {
           avatar.textContent = '@';
           name.textContent = item.title;
@@ -12577,7 +12578,7 @@
   const decorateMessages = () => {
     if (!chatMessages) return;
     chatMessages.querySelectorAll('.msg-author').forEach((el) => {
-      upsertDot(el, el.textContent.trim());
+      upsertDot(el, (el.dataset && el.dataset.ccNick) || el.textContent.trim());
     });
   };
 
